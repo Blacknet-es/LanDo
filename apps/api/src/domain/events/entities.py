@@ -36,6 +36,8 @@ from src.domain.events.value_objects import (
     EventSource,
     RecurrenceRule,
     TimeRange,
+    TriggerType,
+    TriggerCondition,
 )
 
 
@@ -127,6 +129,11 @@ class Event:
 
     # ── Typology ──────────────────────────────────────────────────────────────
     typology_id: Optional[str] = None
+
+    # ── Location & Geofencing ────────────────────────────────────────────────
+    trigger_type: TriggerType = TriggerType.TIME_BASED
+    location_id: Optional[str] = None
+    trigger_condition: Optional[TriggerCondition] = None
 
     # ── ADHD / Cognitive load attributes ─────────────────────────────────────
     energy_level: EnergyLevel = EnergyLevel.MEDIUM_ENERGY
@@ -312,6 +319,9 @@ class Event:
         source: EventSource = EventSource.LOCAL,
         external_id: Optional[str] = None,
         typology_id: Optional[str] = None,
+        trigger_type: TriggerType = TriggerType.TIME_BASED,
+        location_id: Optional[str] = None,
+        trigger_condition: Optional[TriggerCondition] = None,
         energy_level: EnergyLevel = EnergyLevel.MEDIUM_ENERGY,
         cognitive_load: int = 3,
         dopamine_reward: DopamineReward = DopamineReward.MEDIUM,
@@ -336,6 +346,9 @@ class Event:
             external_id=external_id,
             is_read_only=is_read_only,
             typology_id=typology_id,
+            trigger_type=trigger_type,
+            location_id=location_id,
+            trigger_condition=trigger_condition,
             energy_level=energy_level,
             cognitive_load=cognitive_load,
             dopamine_reward=dopamine_reward,

@@ -22,6 +22,8 @@ from src.domain.events.value_objects import (
     RecurrenceRule,
     ReminderStatus,
     TimeRange,
+    TriggerType,
+    TriggerCondition,
 )
 from src.infrastructure.db.models import (
     EventModel,
@@ -124,6 +126,9 @@ def event_to_domain(model: EventModel) -> Event:
         external_id=model.external_id,
         is_read_only=model.is_read_only,
         typology_id=model.typology_id,
+        trigger_type=TriggerType(model.trigger_type) if hasattr(model, "trigger_type") and model.trigger_type else TriggerType.TIME_BASED,
+        location_id=getattr(model, "location_id", None),
+        trigger_condition=TriggerCondition(model.trigger_condition) if getattr(model, "trigger_condition", None) else None,
         energy_level=EnergyLevel(model.energy_level),
         cognitive_load=model.cognitive_load,
         dopamine_reward=DopamineReward(model.dopamine_reward),
@@ -147,6 +152,9 @@ def event_to_model(entity: Event) -> EventModel:
         external_id=entity.external_id,
         is_read_only=entity.is_read_only,
         typology_id=entity.typology_id,
+        trigger_type=entity.trigger_type.value,
+        location_id=entity.location_id,
+        trigger_condition=entity.trigger_condition.value if entity.trigger_condition else None,
         energy_level=entity.energy_level.value,
         cognitive_load=entity.cognitive_load,
         dopamine_reward=entity.dopamine_reward.value,
@@ -162,6 +170,9 @@ def update_model_from_entity(entity: Event, model: EventModel) -> None:
     model.start_time = entity.time_range.start_time
     model.end_time = entity.time_range.end_time
     model.is_all_day = entity.is_all_day
+    model.trigger_type = entity.trigger_type.value
+    model.location_id = entity.location_id
+    model.trigger_condition = entity.trigger_condition.value if entity.trigger_condition else None
     model.energy_level = entity.energy_level.value
     model.cognitive_load = entity.cognitive_load
     model.dopamine_reward = entity.dopamine_reward.value

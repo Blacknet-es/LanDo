@@ -9,7 +9,8 @@ from src.config import settings
 from src.infrastructure.db.session import engine
 from src.infrastructure.db import models  # Ensures models are registered
 from src.domain.settings import models as settings_models  # Ensures user_settings is registered
-from src.routers import health, events, settings as settings_router
+from src.domain.locations import models as location_models  # Ensures user_locations is registered
+from src.routers import health, events, settings as settings_router, chat as chat_router, locations as locations_router
 
 
 @asynccontextmanager
@@ -41,6 +42,8 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(events.router)
 app.include_router(settings_router.router, prefix="/api")
+app.include_router(chat_router.router, prefix="/api")
+app.include_router(locations_router.router, prefix="/api")
 
 
 @app.get("/", include_in_schema=False)

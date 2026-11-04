@@ -107,6 +107,13 @@ class EventModel(SQLModel, table=True):
         default=None, foreign_key="typologies.id", index=True
     )
 
+    # Location & Geofencing triggers
+    trigger_type: str = Field(default="TIME_BASED", max_length=32)
+    location_id: Optional[str] = Field(
+        default=None, foreign_key="user_locations.id", index=True
+    )
+    trigger_condition: Optional[str] = Field(default=None, max_length=16)
+
     # ADHD / Cognitive load attributes — stored as VARCHAR enum strings
     energy_level: str = Field(default="MEDIUM_ENERGY", max_length=32)
     cognitive_load: int = Field(default=3)

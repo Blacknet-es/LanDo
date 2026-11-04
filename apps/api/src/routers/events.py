@@ -14,6 +14,8 @@ from src.domain.events.value_objects import (
     EnergyLevel,
     DopamineReward,
     RecurrenceFrequency,
+    TriggerType,
+    TriggerCondition,
 )
 from src.domain.events.exceptions import (
     ImmutableEventException,
@@ -55,6 +57,9 @@ class CreateEventRequest(BaseModel):
     source: EventSource = EventSource.LOCAL
     external_id: Optional[str] = None
     typology_id: Optional[str] = None
+    trigger_type: TriggerType = TriggerType.TIME_BASED
+    location_id: Optional[str] = None
+    trigger_condition: Optional[TriggerCondition] = None
     energy_level: EnergyLevel = EnergyLevel.MEDIUM_ENERGY
     cognitive_load: int = Field(default=3, ge=1, le=5)
     dopamine_reward: DopamineReward = DopamineReward.MEDIUM
@@ -78,6 +83,9 @@ class EventResponse(BaseModel):
     external_id: Optional[str]
     is_read_only: bool
     typology_id: Optional[str]
+    trigger_type: str
+    location_id: Optional[str]
+    trigger_condition: Optional[str]
     energy_level: str
     cognitive_load: int
     dopamine_reward: str
@@ -114,6 +122,9 @@ def create_event(
         source=payload.source,
         external_id=payload.external_id,
         typology_id=payload.typology_id,
+        trigger_type=payload.trigger_type,
+        location_id=payload.location_id,
+        trigger_condition=payload.trigger_condition,
         energy_level=payload.energy_level,
         cognitive_load=payload.cognitive_load,
         dopamine_reward=payload.dopamine_reward,
@@ -137,6 +148,9 @@ def create_event(
         external_id=event.external_id,
         is_read_only=event.is_read_only,
         typology_id=event.typology_id,
+        trigger_type=event.trigger_type.value,
+        location_id=event.location_id,
+        trigger_condition=event.trigger_condition.value if event.trigger_condition else None,
         energy_level=event.energy_level.value,
         cognitive_load=event.cognitive_load,
         dopamine_reward=event.dopamine_reward.value,
@@ -166,6 +180,9 @@ def list_events(
             external_id=e.external_id,
             is_read_only=e.is_read_only,
             typology_id=e.typology_id,
+            trigger_type=e.trigger_type.value,
+            location_id=e.location_id,
+            trigger_condition=e.trigger_condition.value if e.trigger_condition else None,
             energy_level=e.energy_level.value,
             cognitive_load=e.cognitive_load,
             dopamine_reward=e.dopamine_reward.value,
@@ -199,6 +216,9 @@ def get_event(
         external_id=event.external_id,
         is_read_only=event.is_read_only,
         typology_id=event.typology_id,
+        trigger_type=event.trigger_type.value,
+        location_id=event.location_id,
+        trigger_condition=event.trigger_condition.value if event.trigger_condition else None,
         energy_level=event.energy_level.value,
         cognitive_load=event.cognitive_load,
         dopamine_reward=event.dopamine_reward.value,

@@ -37,6 +37,18 @@ class SqlModelEventRepository(EventRepository):
         models = self.session.exec(statement).all()
         return [event_to_domain(m) for m in models]
 
+    def find_by_date_range(
+        self, start_date: Optional[object] = None, end_date: Optional[object] = None
+    ) -> list[Event]:
+        statement = select(EventModel)
+        if start_date is not None:
+            statement = statement.where(EventModel.start_time >= start_date)
+        if end_date is not None:
+            statement = statement.where(EventModel.start_time <= end_date)
+        statement = statement.order_by(EventModel.start_time)
+        models = self.session.exec(statement).all()
+        return [event_to_domain(m) for m in models]
+
     def save(self, event: Event) -> None:
         existing = self.session.get(EventModel, event.id)
         if existing:

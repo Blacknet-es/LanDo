@@ -52,6 +52,21 @@ class ReminderStatus(str, Enum):
     DISPATCHED = "DISPATCHED"
 
 
+class TriggerType(str, Enum):
+    """Execution trigger mechanism for an event or reminder."""
+
+    TIME_BASED = "TIME_BASED"
+    LOCATION_ENTER = "LOCATION_ENTER"
+    LOCATION_EXIT = "LOCATION_EXIT"
+
+
+class TriggerCondition(str, Enum):
+    """Geofence boundary conditions."""
+
+    ON_ENTER = "ON_ENTER"
+    ON_EXIT = "ON_EXIT"
+
+
 # ── Value Objects ─────────────────────────────────────────────────────────────
 
 

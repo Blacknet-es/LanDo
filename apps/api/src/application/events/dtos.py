@@ -17,6 +17,8 @@ from src.domain.events.value_objects import (
     EnergyLevel,
     EventSource,
     RecurrenceFrequency,
+    TriggerType,
+    TriggerCondition,
 )
 
 
@@ -46,6 +48,9 @@ class CreateEventCommand:
     source: EventSource = EventSource.LOCAL
     external_id: Optional[str] = None
     typology_id: Optional[str] = None
+    trigger_type: TriggerType = TriggerType.TIME_BASED
+    location_id: Optional[str] = None
+    trigger_condition: Optional[TriggerCondition] = None
     energy_level: EnergyLevel = EnergyLevel.MEDIUM_ENERGY
     cognitive_load: int = 3
     dopamine_reward: DopamineReward = DopamineReward.MEDIUM
