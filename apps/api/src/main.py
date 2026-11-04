@@ -8,7 +8,8 @@ from sqlmodel import SQLModel
 from src.config import settings
 from src.infrastructure.db.session import engine
 from src.infrastructure.db import models  # Ensures models are registered
-from src.routers import health, events
+from src.domain.settings import models as settings_models  # Ensures user_settings is registered
+from src.routers import health, events, settings as settings_router
 
 
 @asynccontextmanager
@@ -39,6 +40,7 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
 app.include_router(events.router)
+app.include_router(settings_router.router, prefix="/api")
 
 
 @app.get("/", include_in_schema=False)
