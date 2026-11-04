@@ -1,0 +1,21 @@
+# General
+.DS_Store
+*.log
+node_modules/
+.env
+.env.local
+
+# Python / FastAPI
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# React Native / Expo
+.expo/
+dist/
+*.apk
+*.aab
+
+# Docker
+.docker/
