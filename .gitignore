@@ -1,21 +1,45 @@
-# General
+# ─── OS ──────────────────────────────────────────────────────────────────────
 .DS_Store
+Thumbs.db
 *.log
-node_modules/
-.env
-.env.local
 
-# Python / FastAPI
+# ─── Node / JS / TS ──────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# ─── Python ──────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
+*.pyo
 .venv/
+venv/
 .pytest_cache/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
 
-# React Native / Expo
+# ─── Expo / React Native ─────────────────────────────────────────────────────
 .expo/
-dist/
 *.apk
 *.aab
+*.ipa
+android/
+ios/
 
-# Docker
+# ─── Docker ──────────────────────────────────────────────────────────────────
 .docker/
+
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── IDE ─────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
