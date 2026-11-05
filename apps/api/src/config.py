@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,7 +14,8 @@ class Settings(BaseSettings):
 
     # App
     environment: str = "development"
-    secret_key: str = "change-me-in-production"
+    secret_key: str = "dev-only-secret-key-change-in-production"
+    access_token_expire_minutes: int = Field(default=60, gt=0)
     webhook_secret: str = ""
 
     # Database
@@ -29,6 +31,15 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",")]
+
+    @model_validator(mode="after")
+    def production_requires_strong_secret(self) -> "Settings":
+        if self.environment.lower() == "production" and (
+            self.secret_key == "dev-only-secret-key-change-in-production"
+            or len(self.secret_key) < 32
+        ):
+            raise ValueError("SECRET_KEY must be at least 32 characters in production")
+        return self
 
 
 settings = Settings()

@@ -3,17 +3,19 @@ Unit tests for Locations domain and use cases.
 """
 
 import pytest
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
-from src.domain.locations.models import UserLocation
-from src.domain.locations.exceptions import InvalidCoordinatesException
-from src.domain.locations.repository import SqlModelLocationRepository
 from src.application.locations.use_cases import (
     CreateUserLocationDTO,
     CreateUserLocationUseCase,
     ListUserLocationsUseCase,
 )
+from src.domain.locations.exceptions import InvalidCoordinatesException
+from src.domain.locations.models import UserLocation
+from src.domain.locations.repository import SqlModelLocationRepository
+from src.domain.users.models import User
+from tests.auth_utils import get_test_user_id
 
 
 @pytest.fixture(name="session")
@@ -25,14 +27,19 @@ def session_fixture():
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        user = User(email="locations@example.com", hashed_password="unused")
+        session.add(user)
+        session.commit()
+        session.info["test_user_id"] = user.id
         yield session
     SQLModel.metadata.drop_all(engine)
 
 
 class TestLocationsDomain:
     def test_create_valid_location(self, session: Session):
-        repo = SqlModelLocationRepository(session)
-        use_case = CreateUserLocationUseCase(repo)
+        user_id = get_test_user_id(session)
+        repo = SqlModelLocationRepository(session, user_id)
+        use_case = CreateUserLocationUseCase(repo, user_id)
 
         dto = CreateUserLocationDTO(
             name="Casa de mis padres",
@@ -49,8 +56,9 @@ class TestLocationsDomain:
         assert location.radius_meters == 150
 
     def test_invalid_coordinates_raise_exception(self, session: Session):
-        repo = SqlModelLocationRepository(session)
-        use_case = CreateUserLocationUseCase(repo)
+        user_id = get_test_user_id(session)
+        repo = SqlModelLocationRepository(session, user_id)
+        use_case = CreateUserLocationUseCase(repo, user_id)
 
         dto = CreateUserLocationDTO(
             name="Invalid Place",
@@ -62,9 +70,10 @@ class TestLocationsDomain:
             use_case.execute(dto)
 
     def test_list_locations_case_insensitive_lookup(self, session: Session):
-        repo = SqlModelLocationRepository(session)
-        loc1 = UserLocation(name="Office", latitude=40.0, longitude=-3.0)
-        loc2 = UserLocation(name="Gym", latitude=40.1, longitude=-3.1)
+        user_id = get_test_user_id(session)
+        repo = SqlModelLocationRepository(session, user_id)
+        loc1 = UserLocation(user_id=user_id, name="Office", latitude=40.0, longitude=-3.0)
+        loc2 = UserLocation(user_id=user_id, name="Gym", latitude=40.1, longitude=-3.1)
         repo.save(loc1)
         repo.save(loc2)
 
@@ -79,4 +88,3 @@ class TestLocationsDomain:
 
         not_found = repo.find_by_name("Nonexistent")
         assert not_found is None
-

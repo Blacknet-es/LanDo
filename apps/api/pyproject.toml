@@ -20,6 +20,10 @@ dependencies = [
     "langchain-google-genai>=4.4.2",
     "langchain-anthropic>=1.7.9",
     "langchain-openai>=1.7.3",
+    "email-validator>=2.0.0",
+    "pgvector>=0.3.0",
+    "PyJWT>=2.8.0",
+    "pwdlib[argon2]>=0.2.1",
 ]
 
 [project.optional-dependencies]

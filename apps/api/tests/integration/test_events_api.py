@@ -1,13 +1,15 @@
 """Integration tests for Events API and Database persistence."""
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
-from src.main import app
 from src.infrastructure.db.session import get_session
+from src.main import app
+from tests.auth_utils import authenticated_client, create_test_user
 
 
 @pytest.fixture(name="session")
@@ -20,6 +22,7 @@ def session_fixture():
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        create_test_user(session)
         yield session
     SQLModel.metadata.drop_all(engine)
 
@@ -27,11 +30,12 @@ def session_fixture():
 @pytest.fixture(name="client")
 def client_fixture(session: Session):
     """TestClient fixture overriding the database session dependency."""
+
     def get_session_override():
         return session
 
     app.dependency_overrides[get_session] = get_session_override
-    client = TestClient(app)
+    client = authenticated_client(session)
     yield client
     app.dependency_overrides.clear()
 
@@ -137,7 +141,10 @@ class TestEventsApiIntegration:
             json={"new_start_time": _iso(new_start)},
         )
         assert resched_res.status_code == 403
-        assert "is read-only because it originates from 'GOOGLE_CALENDAR'" in resched_res.json()["detail"]
+        assert (
+            "is read-only because it originates from 'GOOGLE_CALENDAR'"
+            in resched_res.json()["detail"]
+        )
 
     def test_get_nonexistent_event_returns_404(self, client: TestClient):
         res = client.get("/api/v1/events/nonexistent-id-123")

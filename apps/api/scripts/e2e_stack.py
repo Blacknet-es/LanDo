@@ -71,11 +71,27 @@ def _check_api_and_chat(client: httpx.Client) -> None:
         raise RuntimeError("The live API does not publish POST /api/v1/chat")
     print("[OK] FastAPI health and versioned chat route")
 
-    previous_settings = client.get(f"{API_URL}/api/v1/settings/llm")
-    previous_settings.raise_for_status()
-    original = previous_settings.json()
-
+    email = f"e2e-{uuid.uuid4()}@example.test"
+    password = f"e2e-{uuid.uuid4()}-test-password"
+    registered = client.post(
+        f"{API_URL}/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    registered.raise_for_status()
+    user_id = registered.json()["id"]
+    original: dict | None = None
     try:
+        login = client.post(
+            f"{API_URL}/api/v1/auth/login",
+            json={"email": email, "password": password},
+        )
+        login.raise_for_status()
+        client.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
+
+        previous_settings = client.get(f"{API_URL}/api/v1/settings/llm")
+        previous_settings.raise_for_status()
+        original = previous_settings.json()
+
         configured = client.put(
             f"{API_URL}/api/v1/settings/llm",
             json={
@@ -99,15 +115,51 @@ def _check_api_and_chat(client: httpx.Client) -> None:
             raise RuntimeError(f"Unexpected chat response: {reply!r}")
         print(f"[OK] API chat inference via {OLLAMA_MODEL}")
     finally:
-        restored = client.put(
-            f"{API_URL}/api/v1/settings/llm",
-            json={
-                "selected_provider": original["selected_provider"],
-                "selected_model": original["selected_model"],
-                "ollama_base_url": original["ollama_base_url"],
-            },
-        )
-        restored.raise_for_status()
+        try:
+            if original is not None:
+                restored = client.put(
+                    f"{API_URL}/api/v1/settings/llm",
+                    json={
+                        "selected_provider": original["selected_provider"],
+                        "selected_model": original["selected_model"],
+                        "ollama_base_url": original["ollama_base_url"],
+                    },
+                )
+                restored.raise_for_status()
+        finally:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "DELETE FROM event_reminders WHERE event_id IN "
+                        "(SELECT id FROM events WHERE user_id = CAST(:user_id AS uuid))"
+                    ),
+                    {"user_id": user_id},
+                )
+                connection.execute(
+                    text(
+                        "DELETE FROM recurrence_rules WHERE event_id IN "
+                        "(SELECT id FROM events WHERE user_id = CAST(:user_id AS uuid))"
+                    ),
+                    {"user_id": user_id},
+                )
+                for table in (
+                    "location_triggers",
+                    "memory_items",
+                    "events",
+                    "user_locations",
+                    "user_settings",
+                ):
+                    connection.execute(
+                        text(
+                            f"DELETE FROM {table} "
+                            "WHERE user_id = CAST(:user_id AS uuid)"
+                        ),
+                        {"user_id": user_id},
+                    )
+                connection.execute(
+                    text("DELETE FROM users WHERE id = CAST(:user_id AS uuid)"),
+                    {"user_id": user_id},
+                )
 
 
 def _check_n8n(client: httpx.Client) -> None:

@@ -2,16 +2,18 @@
 Unit tests for LangGraph Agent Graph and workflow execution.
 """
 
-import pytest
 from datetime import datetime, timezone
-from langchain_core.messages import HumanMessage, AIMessage
+
+import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.outputs import ChatResult, ChatGeneration
-from sqlmodel import SQLModel, Session, create_engine
-from sqlmodel.pool import StaticPool
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.memory import MemorySaver
+from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel.pool import StaticPool
 
 from src.agent.graph import create_agent_graph
+from tests.auth_utils import create_test_user, get_test_user_id
 
 
 class FakeToolCallingChatModel(BaseChatModel):
@@ -25,14 +27,16 @@ class FakeToolCallingChatModel(BaseChatModel):
         if "reunión" in text.lower():
             msg = AIMessage(
                 content="",
-                tool_calls=[{
-                    "name": "create_event",
-                    "args": {
-                        "title": "Reunión de equipo",
-                        "start_time": "2026-11-05T10:00:00Z",
-                    },
-                    "id": "call_123",
-                }],
+                tool_calls=[
+                    {
+                        "name": "create_event",
+                        "args": {
+                            "title": "Reunión de equipo",
+                            "start_time": "2026-11-05T10:00:00Z",
+                        },
+                        "id": "call_123",
+                    }
+                ],
             )
         else:
             msg = AIMessage(content=f"Echo: {text}")
@@ -56,6 +60,7 @@ def session_fixture():
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        create_test_user(session, "agent-graph@example.com")
         yield session
     SQLModel.metadata.drop_all(engine)
 
@@ -67,6 +72,7 @@ class TestAgentGraph:
         graph = create_agent_graph(
             llm=fake_llm,
             session=session,
+            user_id=get_test_user_id(session),
             current_datetime=datetime(2026, 11, 4, 18, 0, tzinfo=timezone.utc),
             checkpointer=cp,
         )
@@ -87,6 +93,7 @@ class TestAgentGraph:
         graph = create_agent_graph(
             llm=fake_llm,
             session=session,
+            user_id=get_test_user_id(session),
             current_datetime=datetime(2026, 11, 4, 18, 0, tzinfo=timezone.utc),
             checkpointer=cp,
         )
@@ -101,4 +108,3 @@ class TestAgentGraph:
         tool_messages = [m for m in res["messages"] if hasattr(m, "tool_call_id")]
         assert len(tool_messages) >= 1
         assert "Reunión de equipo" in str(tool_messages[0].content)
-

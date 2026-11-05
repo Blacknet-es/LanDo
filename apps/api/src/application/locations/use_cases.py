@@ -2,12 +2,13 @@
 Application use cases for managing user POIs and locations.
 """
 
-from typing import List, Optional
+from typing import List
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 from src.domain.locations.models import UserLocation
 from src.domain.locations.repository import LocationRepository
-from src.domain.locations.exceptions import InvalidCoordinatesException
 
 
 class CreateUserLocationDTO(BaseModel):
@@ -18,11 +19,13 @@ class CreateUserLocationDTO(BaseModel):
 
 
 class CreateUserLocationUseCase:
-    def __init__(self, repository: LocationRepository) -> None:
+    def __init__(self, repository: LocationRepository, user_id: UUID) -> None:
         self.repository = repository
+        self.user_id = user_id
 
     def execute(self, dto: CreateUserLocationDTO) -> UserLocation:
         location = UserLocation(
+            user_id=self.user_id,
             name=dto.name.strip(),
             latitude=dto.latitude,
             longitude=dto.longitude,
@@ -37,4 +40,3 @@ class ListUserLocationsUseCase:
 
     def execute(self, limit: int = 100, offset: int = 0) -> List[UserLocation]:
         return self.repository.list_all(limit=limit, offset=offset)
-

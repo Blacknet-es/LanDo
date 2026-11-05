@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated, Literal, TypedDict
+from uuid import UUID
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage
@@ -31,6 +32,7 @@ global_memory_checkpointer = MemorySaver()
 def create_agent_graph(
     llm: BaseChatModel,
     session: Session,
+    user_id: UUID,
     current_datetime: datetime | None = None,
     user_timezone: str = "UTC",
     checkpointer: MemorySaver | None = None,
@@ -43,7 +45,7 @@ def create_agent_graph(
        ├── Yes -> [tools node] -> [agent node]
        └── No  -> END
     """
-    tools = get_event_tools(session) + get_location_tools(session)
+    tools = get_event_tools(session, user_id) + get_location_tools(session, user_id)
     # Bind tools to the model
     llm_with_tools = llm.bind_tools(tools)
     tool_node = ToolNode(tools)

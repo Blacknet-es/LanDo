@@ -3,19 +3,21 @@ Locations REST API router.
 """
 
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from src.infrastructure.db.session import get_session
-from src.domain.locations.models import UserLocation
-from src.domain.locations.exceptions import InvalidCoordinatesException
-from src.domain.locations.repository import SqlModelLocationRepository
 from src.application.locations.use_cases import (
     CreateUserLocationDTO,
     CreateUserLocationUseCase,
     ListUserLocationsUseCase,
 )
+from src.domain.locations.exceptions import InvalidCoordinatesException
+from src.domain.locations.repository import SqlModelLocationRepository
+from src.domain.users.models import User
+from src.infrastructure.db.session import get_session
+from src.security.auth import get_current_user
 
 router = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -24,7 +26,9 @@ router = APIRouter(prefix="/locations", tags=["locations"])
 
 
 class CreateLocationRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=120, description="Name or alias for location (e.g. Home, Office)")
+    name: str = Field(
+        min_length=1, max_length=120, description="Name or alias for location (e.g. Home, Office)"
+    )
     latitude: float = Field(ge=-90.0, le=90.0, description="Latitude in decimal degrees")
     longitude: float = Field(ge=-180.0, le=180.0, description="Longitude in decimal degrees")
     radius_meters: int = Field(default=100, gt=0, description="Geofence trigger radius in meters")
@@ -45,9 +49,10 @@ class LocationResponse(BaseModel):
 def create_location(
     payload: CreateLocationRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> LocationResponse:
-    repo = SqlModelLocationRepository(session)
-    use_case = CreateUserLocationUseCase(repo)
+    repo = SqlModelLocationRepository(session, current_user.id)
+    use_case = CreateUserLocationUseCase(repo, current_user.id)
 
     try:
         dto = CreateUserLocationDTO(
@@ -76,8 +81,9 @@ def get_locations(
     limit: int = 100,
     offset: int = 0,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> List[LocationResponse]:
-    repo = SqlModelLocationRepository(session)
+    repo = SqlModelLocationRepository(session, current_user.id)
     use_case = ListUserLocationsUseCase(repo)
     locations = use_case.execute(limit=limit, offset=offset)
 
@@ -91,4 +97,3 @@ def get_locations(
         )
         for loc in locations
     ]
-

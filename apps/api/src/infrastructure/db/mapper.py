@@ -12,6 +12,8 @@ Convention:
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from src.domain.events.entities import Event, Typology
 from src.domain.events.value_objects import (
     DopamineReward,
@@ -22,8 +24,8 @@ from src.domain.events.value_objects import (
     RecurrenceRule,
     ReminderStatus,
     TimeRange,
-    TriggerType,
     TriggerCondition,
+    TriggerType,
 )
 from src.infrastructure.db.models import (
     EventModel,
@@ -31,7 +33,6 @@ from src.infrastructure.db.models import (
     RecurrenceRuleModel,
     TypologyModel,
 )
-
 
 # ── Typology ──────────────────────────────────────────────────────────────────
 
@@ -126,9 +127,13 @@ def event_to_domain(model: EventModel) -> Event:
         external_id=model.external_id,
         is_read_only=model.is_read_only,
         typology_id=model.typology_id,
-        trigger_type=TriggerType(model.trigger_type) if hasattr(model, "trigger_type") and model.trigger_type else TriggerType.TIME_BASED,
+        trigger_type=TriggerType(model.trigger_type)
+        if hasattr(model, "trigger_type") and model.trigger_type
+        else TriggerType.TIME_BASED,
         location_id=getattr(model, "location_id", None),
-        trigger_condition=TriggerCondition(model.trigger_condition) if getattr(model, "trigger_condition", None) else None,
+        trigger_condition=TriggerCondition(model.trigger_condition)
+        if getattr(model, "trigger_condition", None)
+        else None,
         energy_level=EnergyLevel(model.energy_level),
         cognitive_load=model.cognitive_load,
         dopamine_reward=DopamineReward(model.dopamine_reward),
@@ -140,9 +145,10 @@ def event_to_domain(model: EventModel) -> Event:
     return event
 
 
-def event_to_model(entity: Event) -> EventModel:
+def event_to_model(entity: Event, user_id: UUID) -> EventModel:
     return EventModel(
         id=entity.id,
+        user_id=user_id,
         title=entity.title,
         description=entity.description,
         start_time=entity.time_range.start_time,
@@ -163,8 +169,9 @@ def event_to_model(entity: Event) -> EventModel:
     )
 
 
-def update_model_from_entity(entity: Event, model: EventModel) -> None:
+def update_model_from_entity(entity: Event, model: EventModel, user_id: UUID) -> None:
     """Mutate an existing ORM row in-place from the current entity state."""
+    model.user_id = user_id
     model.title = entity.title
     model.description = entity.description
     model.start_time = entity.time_range.start_time
@@ -178,4 +185,3 @@ def update_model_from_entity(entity: Event, model: EventModel) -> None:
     model.dopamine_reward = entity.dopamine_reward.value
     model.typology_id = entity.typology_id
     model.updated_at = entity.updated_at
-

@@ -13,6 +13,7 @@ from sqlmodel.pool import StaticPool
 from src.infrastructure.db.session import get_session
 from src.main import app
 from src.routers.chat import get_llm_provider
+from tests.auth_utils import authenticated_client, create_test_user, get_test_user_id
 
 
 class MockChatModel(BaseChatModel):
@@ -42,6 +43,7 @@ def session_fixture():
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        create_test_user(session)
         yield session
     SQLModel.metadata.drop_all(engine)
 
@@ -52,7 +54,7 @@ def client_fixture(session: Session):
         return session
 
     app.dependency_overrides[get_session] = get_session_override
-    client = TestClient(app)
+    client = authenticated_client(session)
     yield client
     app.dependency_overrides.clear()
 
@@ -84,3 +86,30 @@ class TestChatApi:
         )
         assert response.status_code == 200
         assert response.json()["thread_id"] == "shared-client-thread"
+
+    def test_chat_checkpoint_id_is_namespaced_by_user(
+        self,
+        client: TestClient,
+        session: Session,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        captured: dict = {}
+
+        class FakeGraph:
+            def invoke(self, _state, config):
+                captured.update(config["configurable"])
+                return {"messages": [AIMessage(content="isolated reply")]}
+
+        def fake_create_agent_graph(**kwargs):
+            assert kwargs["user_id"] == get_test_user_id(session)
+            return FakeGraph()
+
+        monkeypatch.setattr("src.routers.chat.create_agent_graph", fake_create_agent_graph)
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "Hello", "thread_id": "client-thread"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["thread_id"] == "client-thread"
+        assert captured["thread_id"] == f"{get_test_user_id(session)}:client-thread"

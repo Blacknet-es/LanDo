@@ -2,14 +2,16 @@
 Integration tests for /api/settings/llm endpoints.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from sqlmodel import SQLModel, Session, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
-from src.main import app
 from src.infrastructure.db.session import get_session
+from src.main import app
+from tests.auth_utils import authenticated_client, create_test_user
 
 
 @pytest.fixture(name="session")
@@ -21,6 +23,7 @@ def session_fixture():
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        create_test_user(session)
         yield session
     SQLModel.metadata.drop_all(engine)
 
@@ -31,7 +34,7 @@ def client_fixture(session: Session):
         return session
 
     app.dependency_overrides[get_session] = get_session_override
-    client = TestClient(app)
+    client = authenticated_client(session)
     yield client
     app.dependency_overrides.clear()
 

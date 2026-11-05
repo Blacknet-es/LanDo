@@ -34,6 +34,8 @@ available at `/docs`.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | Health check |
+| `POST` | `/api/v1/auth/register` | Create an account |
+| `POST` | `/api/v1/auth/login` | Get a JWT bearer token |
 | `POST` | `/api/v1/chat` | Send a message to the assistant |
 | `GET`, `POST` | `/api/v1/events` | List or create events |
 | `GET` | `/api/v1/events/{event_id}` | Get an event |
@@ -46,11 +48,32 @@ available at `/docs`.
 
 Chat requests accept `message` and `thread_id` (or the shared client fields
 `content` and `conversationId`). The response includes `reply`, `thread_id`,
-and `tool_outputs`. The location-trigger webhook accepts a JSON body containing
-`user_id`, `location_id`, and a `trigger_type` of `LOCATION_ENTER` or
-`LOCATION_EXIT`. Send the shared secret using `X-LanDo-Webhook-Secret`; the
-legacy `X-Webhook-Secret` header is still accepted. Configure the secret with
-the `WEBHOOK_SECRET` environment variable.
+and `tool_outputs`. Registration and login are public. All other user-facing
+API routes require `Authorization: Bearer <access_token>`. Set a strong
+`SECRET_KEY` (at least 32 characters) in production; JWTs expire after
+`ACCESS_TOKEN_EXPIRE_MINUTES` (default 60). Event, location, LLM settings,
+agent tools, vector-memory lookups, and chat checkpoints are scoped to the
+authenticated account.
+
+The shared-secret webhooks remain machine-authenticated and require the tenant
+UUID in `user_id`; location triggers are accepted only for a location owned by
+that user. External-event webhook bodies also include `user_id`. Send the
+secret using `X-LanDo-Webhook-Secret`; the legacy `X-Webhook-Secret` header is
+still accepted. Configure `WEBHOOK_SECRET` in the environment.
+
+## Database migration
+
+Before deploying the multi-tenant API to a database created by the previous
+schema, apply the versioned migration:
+
+```sh
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/db/migrations/001_multi_tenant.sql
+```
+
+This migration intentionally deletes existing event, reminder, location, and
+LLM-settings rows because they have no trustworthy tenant owner. Back up the
+database first if those records must be retained. New accounts start with
+empty tenant data and receive default LLM settings on first access.
 
 ## Docker Compose E2E check
 
@@ -67,3 +90,10 @@ The check inserts a temporary vector, runs a nearest-neighbor query, verifies
 the API chat round-trip through Ollama and checks n8n health. It restores the
 LLM settings that were active before the test and drops its temporary table
 automatically.
+
+## Mobile app
+
+The Expo app uses `http://localhost:8001` as its default API URL. Set
+`EXPO_PUBLIC_API_URL` before starting Expo when the API is hosted elsewhere
+(for example, use the computer's LAN IP when testing on a physical device).
+The app supports Expo Web and can be started with `npm run mobile -- --web`.

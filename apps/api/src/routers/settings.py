@@ -2,16 +2,19 @@
 Settings API Router for LLM Configuration.
 """
 
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlmodel import Session
 
-from src.infrastructure.db.session import get_session
-from src.domain.settings.models import UserSettingsModel, LLMProviderType
+from src.domain.settings.models import LLMProviderType
 from src.domain.settings.repository import SqlModelUserSettingsRepository
-from src.infrastructure.llm.factory import PROVIDER_DEFAULTS, DEFAULT_OLLAMA_BASE_URL
+from src.domain.users.models import User
+from src.infrastructure.db.session import get_session
+from src.infrastructure.llm.factory import DEFAULT_OLLAMA_BASE_URL, PROVIDER_DEFAULTS
+from src.security.auth import get_current_user
 
 router = APIRouter(prefix="/settings/llm", tags=["settings"])
 
@@ -62,9 +65,10 @@ def _mask_api_keys(api_keys: Optional[Dict[str, str]]) -> Dict[str, bool]:
 @router.get("", response_model=LLMConfigResponse)
 def get_llm_settings(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> LLMConfigResponse:
     """Fetch current LLM settings, available providers, and presets."""
-    repo = SqlModelUserSettingsRepository(session)
+    repo = SqlModelUserSettingsRepository(session, current_user.id)
     settings = repo.get_settings()
 
     return LLMConfigResponse(
@@ -81,9 +85,10 @@ def get_llm_settings(
 def update_llm_settings(
     payload: UpdateLLMSettingsRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> LLMConfigResponse:
     """Update active LLM provider, model, API keys, and Ollama base URL."""
-    repo = SqlModelUserSettingsRepository(session)
+    repo = SqlModelUserSettingsRepository(session, current_user.id)
     settings = repo.get_settings()
 
     settings.selected_provider = payload.selected_provider.value
@@ -115,12 +120,13 @@ def update_llm_settings(
 @router.get("/ollama-models", response_model=OllamaModelsListResponse)
 async def list_ollama_models(
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> OllamaModelsListResponse:
     """
     Query local Ollama instance /api/tags endpoint to dynamically list
     all models downloaded on the host machine.
     """
-    repo = SqlModelUserSettingsRepository(session)
+    repo = SqlModelUserSettingsRepository(session, current_user.id)
     settings = repo.get_settings()
     base_url = (settings.ollama_base_url or DEFAULT_OLLAMA_BASE_URL).rstrip("/")
 
@@ -150,4 +156,3 @@ async def list_ollama_models(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Unable to reach local Ollama at {base_url}: {str(exc)}",
         )
-

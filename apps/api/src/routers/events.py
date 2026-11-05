@@ -1,36 +1,37 @@
 """Events REST API router."""
 
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from src.infrastructure.db.session import get_session
-from src.infrastructure.db.repositories import SqlModelEventRepository
-from src.domain.events.dispatcher import InMemoryDomainEventDispatcher
-from src.domain.events.value_objects import (
-    EventSource,
-    EnergyLevel,
-    DopamineReward,
-    RecurrenceFrequency,
-    TriggerType,
-    TriggerCondition,
-)
-from src.domain.events.exceptions import (
-    ImmutableEventException,
-    InvalidCognitiveLoadException,
-    EventNotFoundException,
-)
 from src.application.events.create_event import CreateEventUseCase
-from src.application.events.reschedule_event import RescheduleEventUseCase
-from src.application.events.absorb_reminders import AbsorbExternalRemindersUseCase
 from src.application.events.dtos import (
     CreateEventCommand,
-    RescheduleEventCommand,
     RecurrenceRuleDTO,
-    AbsorbExternalRemindersCommand,
+    RescheduleEventCommand,
 )
+from src.application.events.reschedule_event import RescheduleEventUseCase
+from src.domain.events.dispatcher import InMemoryDomainEventDispatcher
+from src.domain.events.exceptions import (
+    EventNotFoundException,
+    ImmutableEventException,
+    InvalidCognitiveLoadException,
+)
+from src.domain.events.value_objects import (
+    DopamineReward,
+    EnergyLevel,
+    EventSource,
+    RecurrenceFrequency,
+    TriggerCondition,
+    TriggerType,
+)
+from src.domain.users.models import User
+from src.infrastructure.db.repositories import SqlModelEventRepository
+from src.infrastructure.db.session import get_session
+from src.security.auth import get_current_user
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -100,8 +101,9 @@ class EventResponse(BaseModel):
 def create_event(
     payload: CreateEventRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> EventResponse:
-    repo = SqlModelEventRepository(session)
+    repo = SqlModelEventRepository(session, current_user.id)
     use_case = CreateEventUseCase(repo, event_dispatcher)
 
     rec_dto = None
@@ -164,8 +166,9 @@ def list_events(
     limit: int = 100,
     offset: int = 0,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> List[EventResponse]:
-    repo = SqlModelEventRepository(session)
+    repo = SqlModelEventRepository(session, current_user.id)
     events = repo.find_all(limit=limit, offset=offset)
 
     return [
@@ -197,8 +200,9 @@ def list_events(
 def get_event(
     event_id: str,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> EventResponse:
-    repo = SqlModelEventRepository(session)
+    repo = SqlModelEventRepository(session, current_user.id)
     event = repo.find_by_id(event_id)
     if not event:
         raise HTTPException(
@@ -232,8 +236,9 @@ def reschedule_event(
     event_id: str,
     payload: RescheduleEventRequest,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    repo = SqlModelEventRepository(session)
+    repo = SqlModelEventRepository(session, current_user.id)
     use_case = RescheduleEventUseCase(repo, event_dispatcher)
 
     cmd = RescheduleEventCommand(
@@ -260,4 +265,3 @@ def reschedule_event(
         )
 
     return {"status": "success", "message": "Event rescheduled successfully"}
-

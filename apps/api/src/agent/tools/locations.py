@@ -2,17 +2,19 @@
 LangChain structured tools for managing saved user locations / POIs.
 """
 
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from src.domain.locations.repository import SqlModelLocationRepository
 from src.application.locations.use_cases import (
     CreateUserLocationDTO,
     CreateUserLocationUseCase,
     ListUserLocationsUseCase,
 )
+from src.domain.locations.repository import SqlModelLocationRepository
 
 
 class ManageLocationsInput(BaseModel):
@@ -37,9 +39,9 @@ class ManageLocationsInput(BaseModel):
     )
 
 
-def get_location_tools(session: Session) -> List[StructuredTool]:
-    repo = SqlModelLocationRepository(session)
-    create_uc = CreateUserLocationUseCase(repo)
+def get_location_tools(session: Session, user_id: UUID) -> List[StructuredTool]:
+    repo = SqlModelLocationRepository(session, user_id)
+    create_uc = CreateUserLocationUseCase(repo, user_id)
     list_uc = ListUserLocationsUseCase(repo)
 
     def manage_locations(
@@ -103,4 +105,3 @@ def get_location_tools(session: Session) -> List[StructuredTool]:
             args_schema=ManageLocationsInput,
         )
     ]
-

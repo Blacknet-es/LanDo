@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -97,10 +98,10 @@ def _trigger_values(
     return parsed_type, TriggerCondition[condition]
 
 
-def get_event_tools(session: Session) -> list[StructuredTool]:
-    repository: EventRepository = SqlModelEventRepository(session)
+def get_event_tools(session: Session, user_id: UUID) -> list[StructuredTool]:
+    repository: EventRepository = SqlModelEventRepository(session, user_id)
     dispatcher = InMemoryDomainEventDispatcher()
-    location_repository = SqlModelLocationRepository(session)
+    location_repository = SqlModelLocationRepository(session, user_id)
 
     def create_event(
         title: str,

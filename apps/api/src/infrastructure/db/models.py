@@ -15,9 +15,13 @@ pure-Python domain entities.
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import List, Optional
+from uuid import UUID
 
+from sqlalchemy import ForeignKeyConstraint
 from sqlmodel import Field, Relationship, SQLModel
+
+from src.domain.users.models import User
 
 
 def _uuid() -> str:
@@ -53,9 +57,7 @@ class RecurrenceRuleModel(SQLModel, table=True):
     __tablename__ = "recurrence_rules"
 
     id: str = Field(default_factory=_uuid, primary_key=True)
-    event_id: str = Field(
-        foreign_key="events.id", unique=True, index=True, ondelete="CASCADE"
-    )
+    event_id: str = Field(foreign_key="events.id", unique=True, index=True, ondelete="CASCADE")
     # Stored as VARCHAR; maps to RecurrenceFrequency enum values
     frequency: str = Field(max_length=16)
     interval: int = Field(default=1)
@@ -87,8 +89,16 @@ class EventReminderModel(SQLModel, table=True):
 
 class EventModel(SQLModel, table=True):
     __tablename__ = "events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["location_id", "user_id"],
+            ["user_locations.id", "user_locations.user_id"],
+            name="fk_events_location_tenant",
+        ),
+    )
 
     id: str = Field(default_factory=_uuid, primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", index=True)
     title: str = Field(index=True, max_length=255)
     description: Optional[str] = Field(default=None)
 
@@ -103,15 +113,11 @@ class EventModel(SQLModel, table=True):
     is_read_only: bool = Field(default=False)
 
     # Typology FK (nullable — event may be untyped)
-    typology_id: Optional[str] = Field(
-        default=None, foreign_key="typologies.id", index=True
-    )
+    typology_id: Optional[str] = Field(default=None, foreign_key="typologies.id", index=True)
 
     # Location & Geofencing triggers
     trigger_type: str = Field(default="TIME_BASED", max_length=32)
-    location_id: Optional[str] = Field(
-        default=None, foreign_key="user_locations.id", index=True
-    )
+    location_id: Optional[str] = Field(default=None, index=True)
     trigger_condition: Optional[str] = Field(default=None, max_length=16)
 
     # ADHD / Cognitive load attributes — stored as VARCHAR enum strings
@@ -124,9 +130,7 @@ class EventModel(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_now)
 
     # Relationships
+    user: User = Relationship()
     typology: Optional[TypologyModel] = Relationship(back_populates="events")
-    recurrence_rule: Optional[RecurrenceRuleModel] = Relationship(
-        back_populates="event"
-    )
+    recurrence_rule: Optional[RecurrenceRuleModel] = Relationship(back_populates="event")
     reminders: List[EventReminderModel] = Relationship(back_populates="event")
-

@@ -6,8 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlmodel import SQLModel
 
+from src.domain.locations.triggers import LocationTrigger  # noqa: F401
+from src.domain.memory.models import MemoryItem  # noqa: F401
 from src.infrastructure.db.session import engine
-from src.routers import chat, events, health, locations, settings, webhooks
+from src.routers import auth, chat, events, health, locations, settings, webhooks
 
 
 @asynccontextmanager
@@ -37,6 +39,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix=API_PREFIX)
+app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(chat.router, prefix=API_PREFIX)
 app.include_router(events.router, prefix=API_PREFIX)
 app.include_router(locations.router, prefix=API_PREFIX)

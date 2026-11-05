@@ -5,9 +5,11 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 from src.config import settings
+from src.domain.locations.models import UserLocation
 from src.infrastructure.db.session import get_session
 from src.main import app
 from src.routers import webhooks
+from tests.auth_utils import create_test_user
 
 
 def test_settings_load_webhook_secret_from_environment(
@@ -20,8 +22,8 @@ def test_settings_load_webhook_secret_from_environment(
     assert configured.webhook_secret == "configured-secret"
 
 
-@pytest.fixture(name="client")
-def client_fixture(monkeypatch: pytest.MonkeyPatch):
+@pytest.fixture(name="session")
+def session_fixture():
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -29,10 +31,15 @@ def client_fixture(monkeypatch: pytest.MonkeyPatch):
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
-        app.dependency_overrides[get_session] = lambda: session
-        yield TestClient(app)
-        app.dependency_overrides.clear()
+        yield session
     SQLModel.metadata.drop_all(engine)
+
+
+@pytest.fixture(name="client")
+def client_fixture(session: Session):
+    app.dependency_overrides[get_session] = lambda: session
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 def test_location_trigger_requires_configured_secret(
@@ -42,7 +49,7 @@ def test_location_trigger_requires_configured_secret(
     response = client.post(
         "/api/v1/webhooks/location-trigger",
         json={
-            "user_id": "user-123",
+            "user_id": "018e345a-2095-4ffc-8d86-b1cc41be954d",
             "location_id": "loc-parents-house",
             "trigger_type": "LOCATION_ENTER",
         },
@@ -53,14 +60,23 @@ def test_location_trigger_requires_configured_secret(
 
 
 def test_location_trigger_accepts_valid_secret(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, session: Session
 ) -> None:
     monkeypatch.setattr(settings, "webhook_secret", "test-secret")
+    user = create_test_user(session)
+    location = UserLocation(
+        user_id=user.id,
+        name="Parents' house",
+        latitude=40.0,
+        longitude=-3.0,
+    )
+    session.add(location)
+    session.commit()
     response = client.post(
         "/api/v1/webhooks/location-trigger",
         json={
-            "user_id": "user-123",
-            "location_id": "loc-parents-house",
+            "user_id": str(user.id),
+            "location_id": location.id,
             "trigger_type": "LOCATION_ENTER",
         },
         headers={"X-LanDo-Webhook-Secret": "test-secret"},
@@ -71,20 +87,59 @@ def test_location_trigger_accepts_valid_secret(
 
 
 def test_location_trigger_accepts_legacy_secret_header(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, session: Session
 ) -> None:
     monkeypatch.setattr(settings, "webhook_secret", "test-secret")
+    user = create_test_user(session)
+    location = UserLocation(
+        user_id=user.id,
+        name="Parents' house",
+        latitude=40.0,
+        longitude=-3.0,
+    )
+    session.add(location)
+    session.commit()
     response = client.post(
         "/api/v1/webhooks/location-trigger",
         json={
-            "user_id": "user-123",
-            "location_id": "loc-parents-house",
+            "user_id": str(user.id),
+            "location_id": location.id,
             "trigger_type": "LOCATION_EXIT",
         },
         headers={"X-Webhook-Secret": "test-secret"},
     )
 
     assert response.status_code == 200
+
+
+def test_location_trigger_cannot_cross_user_boundary(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    session: Session,
+) -> None:
+    monkeypatch.setattr(settings, "webhook_secret", "test-secret")
+    owner = create_test_user(session, "location-owner@example.com")
+    other_user = create_test_user(session, "other-location-user@example.com")
+    location = UserLocation(
+        user_id=owner.id,
+        name="Private location",
+        latitude=40.0,
+        longitude=-3.0,
+    )
+    session.add(location)
+    session.commit()
+
+    response = client.post(
+        "/api/v1/webhooks/location-trigger",
+        json={
+            "user_id": str(other_user.id),
+            "location_id": location.id,
+            "trigger_type": "LOCATION_ENTER",
+        },
+        headers={"X-LanDo-Webhook-Secret": "test-secret"},
+    )
+
+    assert response.status_code == 404
 
 
 def test_location_trigger_rejects_unknown_trigger_type(
@@ -94,7 +149,7 @@ def test_location_trigger_rejects_unknown_trigger_type(
     response = client.post(
         "/api/v1/webhooks/location-trigger",
         json={
-            "user_id": "user-123",
+            "user_id": "018e345a-2095-4ffc-8d86-b1cc41be954d",
             "location_id": "loc-parents-house",
             "trigger_type": "ENTER",
         },
@@ -128,7 +183,7 @@ def test_location_trigger_rejects_missing_secret_configuration(
     response = client.post(
         "/api/v1/webhooks/location-trigger",
         json={
-            "user_id": "user-123",
+            "user_id": "018e345a-2095-4ffc-8d86-b1cc41be954d",
             "location_id": "loc-parents-house",
             "trigger_type": "LOCATION_ENTER",
         },
@@ -153,14 +208,17 @@ def test_location_trigger_returns_structured_error_on_unexpected_exception(
 ) -> None:
     monkeypatch.setattr(settings, "webhook_secret", "test-secret")
 
-    def fail_processing(payload: webhooks.LocationTriggerRequest) -> dict[str, str]:
+    def fail_processing(
+        payload: webhooks.LocationTriggerRequest,
+        session: Session,
+    ) -> dict[str, str]:
         raise RuntimeError("location service unavailable")
 
     monkeypatch.setattr(webhooks, "_process_location_trigger", fail_processing)
     response = client.post(
         "/api/v1/webhooks/location-trigger",
         json={
-            "user_id": "user-123",
+            "user_id": "018e345a-2095-4ffc-8d86-b1cc41be954d",
             "location_id": "loc-parents-house",
             "trigger_type": "LOCATION_ENTER",
         },
@@ -175,12 +233,17 @@ def test_location_trigger_returns_structured_error_on_unexpected_exception(
 
 
 def test_external_event_returns_not_found_for_unknown_event(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, session: Session
 ) -> None:
     monkeypatch.setattr(settings, "webhook_secret", "test-secret")
+    user = create_test_user(session)
     response = client.post(
         "/api/v1/webhooks/external-event",
-        json={"event_id": "missing", "reminder_minutes": [15]},
+        json={
+            "user_id": str(user.id),
+            "event_id": "missing",
+            "reminder_minutes": [15],
+        },
         headers={"X-LanDo-Webhook-Secret": "test-secret"},
     )
 
