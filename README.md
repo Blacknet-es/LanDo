@@ -15,6 +15,9 @@ An open-source, self-hosted AI personal assistant designed to reduce cognitive l
 - **Location Management**: Add and manage user locations for geolocation-based reminders.
 - **Settings**: Configure AI provider settings and manage user preferences.
 - **Chat Integration**: Interact with LanDo through a chat interface for quick tasks and queries.
+- **Advanced AI Capabilities**: Utilize advanced AI models for natural language processing, task automation, and more.
+- **User Authentication**: Secure user authentication and authorization for a personalized experience.
+- **Real-time Notifications**: Receive real-time notifications for important events and reminders.
 
 ## Prerequisites
 
