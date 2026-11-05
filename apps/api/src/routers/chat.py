@@ -1,134 +1,91 @@
-"""
-Chat REST API router for interacting with the LangGraph AI Assistant.
-"""
-
-from typing import Optional, List, Dict, Any
-import uuid
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
 from sqlmodel import Session
-from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
 
-from src.infrastructure.db.session import get_session
-from src.domain.settings.repository import SqlModelUserSettingsRepository
-from src.infrastructure.llm.factory import get_llm_provider
-from src.agent.graph import create_agent_graph
+from src.agent.tools.events import get_event_tools
+from src.agent.tools.locations import get_location_tools
+from src.agent.prompts import build_system_prompt
+from src.application.events.create_event import CreateEventUseCase
+from src.application.events.reschedule_event import RescheduleEventUseCase
+from src.application.events.repository import EventRepository
+from src.application.events.exceptions import ImmutableEventException
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter()
 
-
-# ── Schemas ───────────────────────────────────────────────────────────────────
-
-
-class ChatRequest(BaseModel):
-    message: str = Field(description="User prompt or instruction for LanDo.")
-    thread_id: Optional[str] = Field(
-        default=None,
-        description="Conversation session ID for memory persistence. If omitted, a new UUID is generated.",
-    )
-    user_timezone: Optional[str] = Field(
-        default="UTC",
-        description="User timezone name (e.g. 'Europe/Madrid', 'America/New_York').",
-    )
-
-
-class ChatResponse(BaseModel):
-    reply: str
-    thread_id: str
-    tool_outputs: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Structured outputs from any tools executed during this turn.",
-    )
-
-
-# ── Endpoints ─────────────────────────────────────────────────────────────────
-
-
-@router.post("", response_model=ChatResponse, status_code=status.HTTP_200_OK)
-async def chat_with_agent(
-    payload: ChatRequest,
+@router.post("/api/chat")
+async def chat(
+    message: str,
+    thread_id: Optional[str] = None,
+    llm: BaseChatModel = Depends(get_llm_provider),
     session: Session = Depends(get_session),
-) -> ChatResponse:
+    current_datetime: Optional[datetime] = None,
+    user_timezone: str = "UTC",
+    checkpointer: Optional[MemorySaver] = None,
+):
     """
-    Main conversation endpoint with LanDo Agent.
-    - Dynamically configures the model from user settings.
-    - Runs the LangGraph agent state graph.
-    - Returns final assistant reply and executed tool outputs.
+    Endpoint to handle chat requests.
     """
-    user_message = payload.message.strip()
-    if not user_message:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Message cannot be blank.",
-        )
+    tools = get_event_tools(session) + get_location_tools(session)
+    llm_with_tools = llm.bind_tools(tools)
+    tool_node = ToolNode(tools)
 
-    thread_id = payload.thread_id or str(uuid.uuid4())
-
-    # 1. Fetch user LLM settings
-    settings_repo = SqlModelUserSettingsRepository(session)
-    user_settings = settings_repo.get_settings()
-
-    provider = user_settings.selected_provider
-    model_name = user_settings.selected_model
-    api_key = (user_settings.api_keys or {}).get(provider)
-    base_url = user_settings.ollama_base_url
-
-    # 2. Instantiate BaseChatModel with fallback to local Ollama if keys missing
-    llm = get_llm_provider(
-        provider_type=provider,
-        model_name=model_name,
-        api_key=api_key,
-        base_url=base_url,
+    system_prompt = build_system_prompt(
+        current_datetime=current_datetime,
+        user_timezone=user_timezone,
     )
 
-    # 3. Build agent graph with session tools & current datetime
-    graph = create_agent_graph(
-        llm=llm,
-        session=session,
-        current_datetime=datetime.now(timezone.utc),
-        user_timezone=payload.user_timezone or "UTC",
+    def agent_node(state: AgentState):
+        messages = list(state["messages"])
+        if not messages or not isinstance(messages[0], SystemMessage):
+            messages = [SystemMessage(content=system_prompt)] + messages
+        elif isinstance(messages[0], SystemMessage):
+            messages[0] = SystemMessage(content=system_prompt)
+
+        response = llm_with_tools.invoke(messages)
+        return {"messages": [response]}
+
+    def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
+        messages = state["messages"]
+        last_message = messages[-1]
+        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+            return "tools"
+        return "__end__"
+
+    workflow = StateGraph(AgentState)
+    workflow.add_node("agent", agent_node)
+    workflow.add_node("tools", tool_node)
+
+    workflow.set_entry_point("agent")
+    workflow.add_conditional_edges(
+        "agent",
+        should_continue,
+        {
+            "tools": "tools",
+            "__end__": END,
+        },
     )
+    workflow.add_edge("tools", "agent")
 
-    # 4. Invoke graph
-    config = {"configurable": {"thread_id": thread_id}}
-    input_state = {
-        "messages": [HumanMessage(content=user_message)]
-    }
+    cp = checkpointer if checkpointer is not None else global_memory_checkpointer
+    graph = workflow.compile(checkpointer=cp)
 
-    try:
-        final_state = graph.invoke(input_state, config=config)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Agent execution failed: {str(e)}",
-        )
+    state = {"messages": [BaseMessage(content=message)]}
+    result = graph.run(state)
 
-    # 5. Extract reply and any tool execution outputs
-    messages = final_state.get("messages", [])
-    reply = ""
-    tool_outputs: List[Dict[str, Any]] = []
+    reply = result["messages"][0].content
+    tool_outputs = []
 
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and msg.content and not reply:
-            reply = str(msg.content)
-            break
-
-    # If no AIMessage content found (e.g. only tool response), fallback
-    if not reply and messages:
-        last_msg = messages[-1]
-        reply = str(last_msg.content)
-
-    for msg in messages:
-        if isinstance(msg, ToolMessage):
-            tool_outputs.append({
-                "tool_name": getattr(msg, "name", "tool"),
-                "output": msg.content,
-            })
-
-    return ChatResponse(
-        reply=reply,
-        thread_id=thread_id,
-        tool_outputs=tool_outputs,
+    return JSONResponse(
+        content={
+            "reply": reply,
+            "thread_id": thread_id,
+            "tool_outputs": tool_outputs,
+        }
     )
-

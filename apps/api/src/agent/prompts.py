@@ -1,7 +1,3 @@
-"""
-System prompts and context injection for the LanDo AI Assistant.
-"""
-
 from datetime import datetime, timezone
 from typing import Optional
 
