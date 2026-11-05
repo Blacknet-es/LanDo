@@ -1,51 +1,42 @@
+version: '3.8'
+
 services:
-  # ── PostgreSQL with pgvector ───────────────────────────────────────────────
-  db:
-    image: pgvector/pgvector:pg16
-    container_name: lando_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-lando}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lando_secret}
-      POSTGRES_DB: ${POSTGRES_DB:-lando_db}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      # Host port 5435 avoids conflicts with other local Postgres instances
-      - "${POSTGRES_PORT:-5435}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lando} -d ${POSTGRES_DB:-lando_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ── FastAPI / LangGraph API ────────────────────────────────────────────────
   api:
-    build:
-      context: ./apps/api
-      dockerfile: Dockerfile
-    container_name: lando_api
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-lando}:${POSTGRES_PASSWORD:-lando_secret}@db:5432/${POSTGRES_DB:-lando_db}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    build: ./apps/api
     ports:
-      # Host port 8001 avoids conflicts with other local services on 8000
-      - "${API_PORT:-8001}:8000"
+      - "8000:8000"
     depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ./apps/api:/app
-    # Ollama runs on the host — extra_hosts makes host.docker.internal resolve
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - db
+    environment:
+      - DATABASE_URL=sqlite:///./sql_app.db
+      - WEBHOOK_SECRET=your_secret_here
 
-volumes:
-  postgres_data:
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=lan_do
+      - POSTGRES_USER=lan_do
+      - POSTGRES_PASSWORD=lan_do
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    networks:
+      - lando_network
+    volumes:
+      - lando_n8n_data:/home/node/.n8n
+    environment:
+      - N8N_PORT=5678
+      - GENERIC_TIMEZONE=Europe/Madrid
+      - WEBHOOK_SECRET=your_secret_here
 
 networks:
-  default:
-    name: lando_network
+  lando_network:
+    driver: bridge
+
+volumes:
+  db_data:
+  lando_n8n_data:
