@@ -28,11 +28,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(events.router)
-app.include_router(locations.router)
-app.include_router(settings.router)
-app.include_router(chat.router)
-app.include_router(webhooks.router)
+app.include_router(events.router, prefix="/api/v1/events", tags=["Events"])
+app.include_router(locations.router, prefix="/api/v1/locations", tags=["Locations"])
+app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
+app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 
 @app.get("/", include_in_schema=False)
 async def root() -> dict:
