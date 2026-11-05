@@ -11,6 +11,11 @@ from sqlmodel import Session
 from typing_extensions import Optional, Literal
 from datetime import datetime
 from langchain_core.messages import SystemMessage
+from src.agent.tools.locations import get_location_tools
+from src.application.events.create_event import CreateEventUseCase
+from src.application.events.reschedule_event import RescheduleEventUseCase
+from src.application.events.repository import EventRepository
+from src.application.events.exceptions import ImmutableEventException
 
 router = APIRouter()
 
