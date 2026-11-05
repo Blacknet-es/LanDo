@@ -14,5 +14,11 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "expo-router": "~58.0.30",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.1"
   }
 }
