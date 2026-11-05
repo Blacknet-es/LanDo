@@ -15,7 +15,6 @@ from src.agent.tools.locations import get_location_tools
 from src.application.events.create_event import CreateEventUseCase
 from src.application.events.reschedule_event import RescheduleEventUseCase
 from src.application.events.repository import EventRepository
-from src.application.events.exceptions import ImmutableEventException
 from src.application.events.absorb_reminders import AbsorbExternalRemindersUseCase
 from src.routers import events, locations, settings, chat, webhooks
 
