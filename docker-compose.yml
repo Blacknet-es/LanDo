@@ -1,41 +1,56 @@
-version: '3.8'
-
 services:
   api:
     build: ./apps/api
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
-      - DATABASE_URL=sqlite:///./sql_app.db
-      - WEBHOOK_SECRET=your_secret_here
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://lando:lando_secret@db:5432/lando_db}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5-coder:7b}
+      N8N_BASE_URL: http://n8n:5678
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2)"
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
 
   db:
-    image: postgres:13
+    image: pgvector/pgvector:pg13
     environment:
-      - POSTGRES_DB=lan_do
-      - POSTGRES_USER=lan_do
-      - POSTGRES_PASSWORD=lan_do
+      POSTGRES_DB: ${POSTGRES_DB:-lando_db}
+      POSTGRES_USER: ${POSTGRES_USER:-lando}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lando_secret}
     volumes:
       - db_data:/var/lib/postgresql/data
+      - ./apps/db/init/01-pgvector.sql:/docker-entrypoint-initdb.d/01-pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
     ports:
       - "5678:5678"
-    networks:
-      - lando_network
     volumes:
       - lando_n8n_data:/home/node/.n8n
     environment:
       - N8N_PORT=5678
       - GENERIC_TIMEZONE=Europe/Madrid
-      - WEBHOOK_SECRET=your_secret_here
-
-networks:
-  lando_network:
-    driver: bridge
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
 
 volumes:
   db_data:

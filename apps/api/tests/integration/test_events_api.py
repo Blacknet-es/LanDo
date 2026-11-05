@@ -58,7 +58,7 @@ class TestEventsApiIntegration:
         }
 
         # 1. POST /events
-        response = client.post("/events", json=payload)
+        response = client.post("/api/v1/events", json=payload)
         assert response.status_code == 201
         data = response.json()
         assert data["title"] == "Architecture Sync"
@@ -67,14 +67,14 @@ class TestEventsApiIntegration:
         event_id = data["id"]
 
         # 2. GET /events/{id}
-        get_res = client.get(f"/events/{event_id}")
+        get_res = client.get(f"/api/v1/events/{event_id}")
         assert get_res.status_code == 200
         get_data = get_res.json()
         assert get_data["id"] == event_id
         assert get_data["description"] == "Deep-dive into Event-driven architecture"
 
         # 3. GET /events (list)
-        list_res = client.get("/events")
+        list_res = client.get("/api/v1/events")
         assert list_res.status_code == 200
         list_data = list_res.json()
         assert len(list_data) >= 1
@@ -87,13 +87,13 @@ class TestEventsApiIntegration:
             "start_time": _iso(start),
             "cognitive_load": 10,  # exceeds max 5
         }
-        response = client.post("/events", json=payload)
+        response = client.post("/api/v1/events", json=payload)
         assert response.status_code == 422
 
     def test_reschedule_local_event_success(self, client: TestClient):
         start = datetime.now(timezone.utc) + timedelta(hours=2)
         create_res = client.post(
-            "/events",
+            "/api/v1/events",
             json={
                 "title": "Team Sync",
                 "start_time": _iso(start),
@@ -105,13 +105,13 @@ class TestEventsApiIntegration:
         # Reschedule
         new_start = start + timedelta(days=1)
         resched_res = client.post(
-            f"/events/{event_id}/reschedule",
+            f"/api/v1/events/{event_id}/reschedule",
             json={"new_start_time": _iso(new_start)},
         )
         assert resched_res.status_code == 200
 
         # Verify new start time
-        get_res = client.get(f"/events/{event_id}")
+        get_res = client.get(f"/api/v1/events/{event_id}")
         assert get_res.status_code == 200
         assert get_res.json()["start_time"].startswith(new_start.isoformat()[:19])
 
@@ -119,7 +119,7 @@ class TestEventsApiIntegration:
         start = datetime.now(timezone.utc)
         # Create external event (source=GOOGLE_CALENDAR -> is_read_only=True)
         create_res = client.post(
-            "/events",
+            "/api/v1/events",
             json={
                 "title": "Google Cal Meeting",
                 "start_time": _iso(start),
@@ -133,13 +133,12 @@ class TestEventsApiIntegration:
         # Attempt to reschedule -> must return 403 Forbidden due to ImmutableEventException
         new_start = start + timedelta(days=1)
         resched_res = client.post(
-            f"/events/{event_id}/reschedule",
+            f"/api/v1/events/{event_id}/reschedule",
             json={"new_start_time": _iso(new_start)},
         )
         assert resched_res.status_code == 403
         assert "is read-only because it originates from 'GOOGLE_CALENDAR'" in resched_res.json()["detail"]
 
     def test_get_nonexistent_event_returns_404(self, client: TestClient):
-        res = client.get("/events/nonexistent-id-123")
+        res = client.get("/api/v1/events/nonexistent-id-123")
         assert res.status_code == 404
-

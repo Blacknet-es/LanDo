@@ -14,6 +14,7 @@ RUN uv sync --no-dev
 
 # Copy source
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 
 EXPOSE 8000
 

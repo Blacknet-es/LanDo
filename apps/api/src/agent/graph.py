@@ -1,20 +1,18 @@
-from typing import Annotated, Sequence, TypedDict, Literal, Optional, List
+from collections.abc import Sequence
 from datetime import datetime
-from langchain_core.messages import BaseMessage, SystemMessage
+from typing import Annotated, Literal, TypedDict
+
 from langchain_core.language_models.chat_models import BaseChatModel
-from langgraph.graph import StateGraph, END
+from langchain_core.messages import BaseMessage, SystemMessage
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
 from sqlmodel import Session
 
+from src.agent.prompts import build_system_prompt
 from src.agent.tools.events import get_event_tools
 from src.agent.tools.locations import get_location_tools
-from src.agent.prompts import build_system_prompt
-from src.application.events.create_event import CreateEventUseCase
-from src.application.events.reschedule_event import RescheduleEventUseCase
-from src.application.events.repository import EventRepository
-from src.application.events.exceptions import ImmutableEventException
 
 # ── State Definition ──────────────────────────────────────────────────────────
 
@@ -33,9 +31,9 @@ global_memory_checkpointer = MemorySaver()
 def create_agent_graph(
     llm: BaseChatModel,
     session: Session,
-    current_datetime: Optional[datetime] = None,
+    current_datetime: datetime | None = None,
     user_timezone: str = "UTC",
-    checkpointer: Optional[MemorySaver] = None,
+    checkpointer: MemorySaver | None = None,
 ):
     """
     Builds and compiles a LangGraph stateful agent workflow.

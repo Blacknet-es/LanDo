@@ -46,7 +46,7 @@ class TestLocationsApiIntegration:
             "longitude": -3.7038,
             "radius_meters": 100,
         }
-        res = client.post("/api/locations", json=payload)
+        res = client.post("/api/v1/locations", json=payload)
         assert res.status_code == 201
         data = res.json()
         assert data["name"] == "Home"
@@ -54,7 +54,7 @@ class TestLocationsApiIntegration:
         assert "id" in data
 
         # 2. Get Locations List
-        get_res = client.get("/api/locations")
+        get_res = client.get("/api/v1/locations")
         assert get_res.status_code == 200
         locs = get_res.json()
         assert len(locs) >= 1
@@ -62,7 +62,7 @@ class TestLocationsApiIntegration:
 
     def test_create_location_invalid_coords(self, client: TestClient):
         res = client.post(
-            "/api/locations",
+            "/api/v1/locations",
             json={"name": "Bad", "latitude": 120.0, "longitude": 0.0},
         )
         assert res.status_code == 422
@@ -70,7 +70,7 @@ class TestLocationsApiIntegration:
     def test_create_event_with_location_trigger_api(self, client: TestClient):
         # Create location first
         loc_res = client.post(
-            "/api/locations",
+            "/api/v1/locations",
             json={"name": "Office", "latitude": 40.45, "longitude": -3.69},
         )
         assert loc_res.status_code == 201
@@ -84,7 +84,7 @@ class TestLocationsApiIntegration:
             "location_id": loc_id,
             "trigger_condition": "ON_ENTER",
         }
-        event_res = client.post("/events", json=event_payload)
+        event_res = client.post("/api/v1/events", json=event_payload)
         assert event_res.status_code == 201
         event_data = event_res.json()
         assert event_data["trigger_type"] == "LOCATION_ENTER"
@@ -126,4 +126,3 @@ class TestLocationsApiIntegration:
         })
         assert "error" in bad_remind
         assert "not found in saved places" in bad_remind["error"]
-

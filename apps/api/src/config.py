@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     # App
     environment: str = "development"
     secret_key: str = "change-me-in-production"
+    webhook_secret: str = ""
 
     # Database
     database_url: str = "postgresql://lando:lando_secret@localhost:5432/lando_db"

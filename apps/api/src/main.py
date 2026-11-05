@@ -1,24 +1,32 @@
-from fastapi import FastAPI, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
-from sqlmodel import Session
-from typing_extensions import Optional, Literal
-from datetime import datetime
-from langchain_core.messages import SystemMessage
-from src.agent.tools.locations import get_location_tools
-from src.application.events.create_event import CreateEventUseCase
-from src.application.events.reschedule_event import RescheduleEventUseCase
-from src.application.events.repository import EventRepository
-from src.application.events.absorb_reminders import AbsorbExternalRemindersUseCase
-from src.routers import events, locations, settings, chat, webhooks, health
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-app = FastAPI()
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlmodel import SQLModel
+
+from src.infrastructure.db.session import engine
+from src.routers import chat, events, health, locations, settings, webhooks
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    with engine.begin() as connection:
+        vector_version = connection.execute(
+            text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+        ).scalar_one_or_none()
+        if vector_version is None:
+            raise RuntimeError(
+                "PostgreSQL pgvector is not enabled. Initialize the database with "
+                "apps/db/init/01-pgvector.sql."
+            )
+        SQLModel.metadata.create_all(connection)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+API_PREFIX = "/api/v1"
 
 app.add_middleware(
     CORSMiddleware,
@@ -28,13 +36,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(health.router, prefix="/api/v1", tags=["Health"])
-app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
-app.include_router(events.router, prefix="/api/v1/events", tags=["Events"])
-app.include_router(locations.router, prefix="/api/v1/locations", tags=["Locations"])
-app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
-app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
+app.include_router(health.router, prefix=API_PREFIX)
+app.include_router(chat.router, prefix=API_PREFIX)
+app.include_router(events.router, prefix=API_PREFIX)
+app.include_router(locations.router, prefix=API_PREFIX)
+app.include_router(settings.router, prefix=API_PREFIX)
+app.include_router(webhooks.router, prefix=f"{API_PREFIX}/webhooks")
+
 
 @app.get("/", include_in_schema=False)
 async def root() -> dict:
-    return {"message": "Welcome to LanDo"}
+    return {"message": "Welcome to LanDo API"}

@@ -38,7 +38,7 @@ def client_fixture(session: Session):
 
 class TestLLMSettingsApi:
     def test_get_default_llm_settings(self, client: TestClient):
-        response = client.get("/api/settings/llm")
+        response = client.get("/api/v1/settings/llm")
         assert response.status_code == 200
         data = response.json()
         assert data["selected_provider"] == "ollama"
@@ -58,7 +58,7 @@ class TestLLMSettingsApi:
             },
             "ollama_base_url": "http://localhost:11434",
         }
-        put_res = client.put("/api/settings/llm", json=payload)
+        put_res = client.put("/api/v1/settings/llm", json=payload)
         assert put_res.status_code == 200
         put_data = put_res.json()
         assert put_data["selected_provider"] == "google"
@@ -68,7 +68,7 @@ class TestLLMSettingsApi:
         assert put_data["configured_api_keys"]["google"] is True
 
         # Verify persistence with GET
-        get_res = client.get("/api/settings/llm")
+        get_res = client.get("/api/v1/settings/llm")
         assert get_res.status_code == 200
         assert get_res.json()["selected_provider"] == "google"
         assert get_res.json()["configured_api_keys"]["google"] is True
@@ -84,7 +84,7 @@ class TestLLMSettingsApi:
         }
 
         with patch("httpx.AsyncClient.get", return_value=mock_response):
-            response = client.get("/api/settings/llm/ollama-models")
+            response = client.get("/api/v1/settings/llm/ollama-models")
             assert response.status_code == 200
             data = response.json()
             assert len(data["models"]) == 2
@@ -95,7 +95,6 @@ class TestLLMSettingsApi:
         import httpx
 
         with patch("httpx.AsyncClient.get", side_effect=httpx.ConnectError("Connection refused")):
-            response = client.get("/api/settings/llm/ollama-models")
+            response = client.get("/api/v1/settings/llm/ollama-models")
             assert response.status_code == 503
             assert "Unable to reach local Ollama" in response.json()["detail"]
-

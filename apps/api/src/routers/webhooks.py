@@ -1,55 +1,109 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
+import logging
+import secrets
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field, field_validator
 from sqlmodel import Session
-from typing_extensions import Optional, Literal
-from datetime import datetime
-from langchain_core.messages import SystemMessage
-from src.agent.tools.locations import get_location_tools
-from src.application.events.create_event import CreateEventUseCase
-from src.application.events.reschedule_event import RescheduleEventUseCase
-from src.application.events.repository import EventRepository
-from src.application.events.exceptions import ImmutableEventException
+
 from src.application.events.absorb_reminders import AbsorbExternalRemindersUseCase
-from src.infrastructure.webhooks.n8n_publisher import publish_webhook
+from src.application.events.dtos import AbsorbExternalRemindersCommand
+from src.config import settings
+from src.domain.events.dispatcher import InMemoryDomainEventDispatcher
+from src.domain.events.exceptions import EventNotFoundException
+from src.domain.events.value_objects import TriggerType
+from src.infrastructure.db.repositories import SqlModelEventRepository
+from src.infrastructure.db.session import get_session
 
 router = APIRouter()
+event_dispatcher = InMemoryDomainEventDispatcher()
+logger = logging.getLogger(__name__)
 
-def get_webhook_secret():
-    return "your_secret_here"
 
-@router.post("/api/v1/webhooks/location-trigger")
-async def location_trigger(
-    request: Request,
-    user_id: str,
-    location_id: str,
-    trigger_type: str,
-    webhook_secret: str = Depends(get_webhook_secret),
-):
-    if webhook_secret != os.getenv("WEBHOOK_SECRET"):
-        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+def verify_webhook_secret(
+    lando_secret: str | None = Header(default=None, alias="X-LanDo-Webhook-Secret"),
+    legacy_secret: str | None = Header(default=None, alias="X-Webhook-Secret"),
+) -> None:
+    configured_secret = settings.webhook_secret
+    if not configured_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook secret is not configured",
+        )
+    provided_secret = lando_secret if lando_secret is not None else legacy_secret
+    if provided_secret is None or not secrets.compare_digest(
+        provided_secret.encode("utf-8"), configured_secret.encode("utf-8")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook secret",
+        )
 
-    # Handle location trigger logic here
+
+class LocationTriggerRequest(BaseModel):
+    user_id: str = Field(min_length=1)
+    location_id: str = Field(min_length=1)
+    trigger_type: TriggerType
+
+    @field_validator("user_id", "location_id")
+    @classmethod
+    def identifiers_must_not_be_blank(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Identifier must not be blank")
+        return normalized
+
+
+class ExternalEventRequest(BaseModel):
+    event_id: str = Field(min_length=1)
+    reminder_minutes: list[int] = Field(default_factory=list)
+
+
+def _process_location_trigger(payload: LocationTriggerRequest) -> dict[str, str]:
     return {"message": "Location trigger received"}
 
-@router.post("/api/v1/webhooks/external-event")
-async def external_event(
-    request: Request,
-    event_data: dict,
-    webhook_secret: str = Depends(get_webhook_secret),
-):
-    if webhook_secret != os.getenv("WEBHOOK_SECRET"):
-        raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
+@router.post("/location-trigger")
+async def location_trigger(
+    payload: LocationTriggerRequest,
+    _: None = Depends(verify_webhook_secret),
+) -> dict:
+    try:
+        return _process_location_trigger(payload)
+    except Exception as exc:
+        logger.exception(
+            "Failed to process location trigger for user %s and location %s",
+            payload.user_id,
+            payload.location_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to process location trigger",
+                "error": str(exc),
+            },
+        ) from exc
+
+
+@router.post("/external-event")
+async def external_event(
+    event_data: ExternalEventRequest,
+    session: Session = Depends(get_session),
+    _: None = Depends(verify_webhook_secret),
+) -> dict:
     use_case = AbsorbExternalRemindersUseCase(
-        repository=EventRepository(session),
-        dispatcher=DomainEventDispatcher(),
+        repository=SqlModelEventRepository(session),
+        dispatcher=event_dispatcher,
     )
-    use_case.execute(event_data)
+    command = AbsorbExternalRemindersCommand(
+        event_id=event_data.event_id,
+        reminder_minutes=event_data.reminder_minutes,
+    )
+    try:
+        use_case.execute(command)
+    except EventNotFoundException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
 
     return {"message": "External event absorbed"}
