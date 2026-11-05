@@ -126,3 +126,4 @@ class TestLocationsApiIntegration:
         })
         assert "error" in bad_remind
         assert "not found in saved places" in bad_remind["error"]
+

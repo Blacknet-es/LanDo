@@ -103,3 +103,4 @@ def get_location_tools(session: Session) -> List[StructuredTool]:
             args_schema=ManageLocationsInput,
         )
     ]
+

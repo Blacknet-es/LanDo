@@ -20,3 +20,4 @@ class InvalidCoordinatesException(LandoDomainException):
         super().__init__(f"Invalid coordinates: latitude={lat} (must be -90..90), longitude={lon} (must be -180..180).")
         self.lat = lat
         self.lon = lon
+

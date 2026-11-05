@@ -1,51 +1,40 @@
-"""LanDo API – entry point."""
-
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import SQLModel
+from sqlalchemy.orm import Session
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
+from sqlmodel import Session
+from typing_extensions import Optional, Literal
+from datetime import datetime
+from langchain_core.messages import SystemMessage
+from src.agent.tools.locations import get_location_tools
+from src.application.events.create_event import CreateEventUseCase
+from src.application.events.reschedule_event import RescheduleEventUseCase
+from src.application.events.repository import EventRepository
+from src.application.events.exceptions import ImmutableEventException
+from src.application.events.absorb_reminders import AbsorbExternalRemindersUseCase
+from src.routers import events, locations, settings, chat, webhooks
 
-from src.config import settings
-from src.infrastructure.db.session import engine
-from src.infrastructure.db import models  # Ensures models are registered
-from src.domain.settings import models as settings_models  # Ensures user_settings is registered
-from src.domain.locations import models as location_models  # Ensures user_locations is registered
-from src.routers import health, events, settings as settings_router, chat as chat_router, locations as locations_router
+app = FastAPI()
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Initialize database tables on startup if they don't exist
-    SQLModel.metadata.create_all(engine)
-    yield
-
-
-app = FastAPI(
-    title="LanDo API",
-    description="Self-hosted AI personal assistant backend",
-    version="0.1.0",
-    lifespan=lifespan,
-    docs_url="/docs" if settings.environment != "production" else None,
-    redoc_url="/redoc" if settings.environment != "production" else None,
-)
-
-# ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Routers ───────────────────────────────────────────────────────────────────
-app.include_router(health.router)
 app.include_router(events.router)
-app.include_router(settings_router.router, prefix="/api")
-app.include_router(chat_router.router, prefix="/api")
-app.include_router(locations_router.router, prefix="/api")
-
+app.include_router(locations.router)
+app.include_router(settings.router)
+app.include_router(chat.router)
+app.include_router(webhooks.router)
 
 @app.get("/", include_in_schema=False)
 async def root() -> dict:
-    return {"message": "LanDo API is running 🧠", "docs": "/docs"}
+    return {"message": "Welcome to LanDo"}

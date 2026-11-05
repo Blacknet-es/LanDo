@@ -91,3 +91,4 @@ def get_locations(
         )
         for loc in locations
     ]
+

@@ -79,3 +79,4 @@ class TestLocationsDomain:
 
         not_found = repo.find_by_name("Nonexistent")
         assert not_found is None
+

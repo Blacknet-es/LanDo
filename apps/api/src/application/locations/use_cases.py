@@ -37,3 +37,4 @@ class ListUserLocationsUseCase:
 
     def execute(self, limit: int = 100, offset: int = 0) -> List[UserLocation]:
         return self.repository.list_all(limit=limit, offset=offset)
+

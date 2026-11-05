@@ -36,3 +36,4 @@ class UserLocation(SQLModel, table=True):
             raise InvalidCoordinatesException(self.latitude, self.longitude)
         if self.radius_meters <= 0:
             raise ValueError(f"radius_meters must be > 0, got {self.radius_meters}")
+

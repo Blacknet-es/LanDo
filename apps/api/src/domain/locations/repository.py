@@ -57,3 +57,4 @@ class SqlModelLocationRepository(LocationRepository):
         if loc:
             self.session.delete(loc)
             self.session.commit()
+
