@@ -16,7 +16,7 @@ from src.application.events.create_event import CreateEventUseCase
 from src.application.events.reschedule_event import RescheduleEventUseCase
 from src.application.events.repository import EventRepository
 from src.application.events.absorb_reminders import AbsorbExternalRemindersUseCase
-from src.routers import events, locations, settings, chat, webhooks
+from src.routers import events, locations, settings, chat, webhooks, health
 
 app = FastAPI()
 
@@ -28,10 +28,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(health.router, prefix="/api/v1", tags=["Health"])
+app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 app.include_router(events.router, prefix="/api/v1/events", tags=["Events"])
 app.include_router(locations.router, prefix="/api/v1/locations", tags=["Locations"])
 app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
-app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 
 @app.get("/", include_in_schema=False)
