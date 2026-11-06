@@ -11,150 +11,41 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-type Energy = 'low' | 'medium' | 'high';
-type CognitiveState = 'light' | 'moderate' | 'saturated';
-type TaskTab = 'now' | 'today' | 'geofenced';
-type EventItem = {
-  id: string;
-  title: string;
-  description?: string | null;
-  startAt: string;
-  endAt?: string | null;
-  energy: 'low' | 'medium' | 'high';
-  load: 1 | 2 | 3 | 4 | 5;
-  priority: 'low' | 'medium' | 'high';
-  location?: string | null;
-  triggerType: string;
-  isMicroAction: boolean;
-};
-
-type ApiEvent = {
-  id: string;
-  title: string;
-  description?: string | null;
-  start_time: string;
-  end_time?: string | null;
-  energy_level?: string;
-  cognitive_load?: number;
-  trigger_type?: string;
-  location_id?: string | null;
-};
-
-type ChatResponse = {
-  reply: string;
-  thread_id: string;
-};
+import { Redirect } from 'expo-router';
+import { ApiClientError, createApiClient } from '@shared/api/client';
+import { getDeviceLanguage, translate, type AppLanguage } from '@shared/i18n';
+import { listEvents } from '../src/application/listEvents';
+import { sendAssistantMessage } from '../src/application/sendAssistantMessage';
+import { updatePreferredLanguage } from '../src/application/updatePreferredLanguage';
+import { useSession } from '../src/auth/SessionProvider';
+import { MOCK_EVENTS } from '../src/features/events/mockEvents';
+import {
+  durationLabel,
+  eventTime,
+  type CognitiveState,
+  type Energy,
+  type EventItem,
+  type TaskTab,
+} from '../src/features/events/model';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8001').replace(
   /\/$/,
   '',
 );
-const API_ROOT = `${API_URL}/api/v1`;
 
-const MOCK_EVENTS: EventItem[] = [
-  {
-    id: 'mock-water',
-    title: 'Preparar un vaso de agua',
-    description: 'Un pequeño reinicio para empezar con calma.',
-    startAt: new Date().toISOString(),
-    energy: 'low',
-    load: 1,
-    priority: 'medium',
-    triggerType: 'TIME_BASED',
-    isMicroAction: true,
-  },
-  {
-    id: 'mock-message',
-    title: 'Responder el mensaje pendiente',
-    description: 'Solo hace falta escribir una primera frase.',
-    startAt: new Date(Date.now() + 30 * 60_000).toISOString(),
-    energy: 'low',
-    load: 2,
-    priority: 'high',
-    triggerType: 'TIME_BASED',
-    isMicroAction: true,
-  },
-  {
-    id: 'mock-break',
-    title: 'Pausa sin pantallas',
-    description: 'Diez minutos para despejar la mente.',
-    startAt: new Date(Date.now() + 60 * 60_000).toISOString(),
-    endAt: new Date(Date.now() + 70 * 60_000).toISOString(),
-    energy: 'low',
-    load: 1,
-    priority: 'low',
-    triggerType: 'TIME_BASED',
-    isMicroAction: true,
-  },
-  {
-    id: 'mock-location',
-    title: 'Recoger el paquete',
-    description: 'Al pasar por casa de tus padres.',
-    startAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
-    energy: 'medium',
-    load: 2,
-    priority: 'medium',
-    location: 'Casa de tus padres',
-    triggerType: 'LOCATION_ENTER',
-    isMicroAction: false,
-  },
-];
-
-const ENERGY_OPTIONS: { key: Energy; label: string; emoji: string }[] = [
-  { key: 'low', label: 'Baja', emoji: '🪫' },
-  { key: 'medium', label: 'Media', emoji: '⚡' },
-  { key: 'high', label: 'Alta', emoji: '🚀' },
-];
-
-function mapApiEvent(event: ApiEvent): EventItem {
-  const energy =
-    event.energy_level === 'LOW_ENERGY'
-      ? 'low'
-      : event.energy_level === 'HIGH_ENERGY'
-        ? 'high'
-        : 'medium';
-  const load = Math.max(1, Math.min(5, Math.round(event.cognitive_load ?? 3))) as
-    | 1
-    | 2
-    | 3
-    | 4
-    | 5;
-  const durationMinutes = event.end_time
-    ? (new Date(event.end_time).getTime() - new Date(event.start_time).getTime()) / 60_000
-    : undefined;
-
-  return {
-    id: event.id,
-    title: event.title,
-    description: event.description,
-    startAt: event.start_time,
-    endAt: event.end_time,
-    energy,
-    load,
-    priority: load >= 4 ? 'high' : load <= 2 ? 'low' : 'medium',
-    location: event.location_id,
-    triggerType: event.trigger_type ?? 'TIME_BASED',
-    isMicroAction: durationMinutes !== undefined && durationMinutes <= 15,
-  };
-}
-
-function eventTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Hora por confirmar';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function durationLabel(event: EventItem): string {
-  if (!event.endAt) return event.isMicroAction ? '≤15 min' : 'Flexible';
-  const minutes = Math.max(
-    0,
-    Math.round((new Date(event.endAt).getTime() - new Date(event.startAt).getTime()) / 60_000),
+function HomeContent({ accessToken }: { accessToken: string }) {
+  const { signOut } = useSession();
+  const [language, setLanguage] = useState<AppLanguage>(getDeviceLanguage);
+  const api = useMemo(
+    () => createApiClient(API_URL, () => accessToken, () => language),
+    [accessToken, language],
   );
-  return minutes <= 15 ? '≤15 min' : `${minutes} min`;
-}
-
-function HomeScreen() {
+  const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
+  const energyOptions: { key: Energy; label: string; emoji: string }[] = [
+    { key: 'low', label: t('energy_low'), emoji: '🪫' },
+    { key: 'medium', label: t('energy_medium'), emoji: '⚡' },
+    { key: 'high', label: t('energy_high'), emoji: '🚀' },
+  ];
   const [energy, setEnergy] = useState<Energy>('medium');
   const [cognitiveState, setCognitiveState] = useState<CognitiveState>('moderate');
   const [tab, setTab] = useState<TaskTab>('today');
@@ -172,13 +63,14 @@ function HomeScreen() {
     const controller = new AbortController();
     const loadEvents = async () => {
       try {
-        const response = await fetch(`${API_ROOT}/events`, { signal: controller.signal });
-        if (!response.ok) throw new Error(`API responded with HTTP ${response.status}`);
-        const data = (await response.json()) as ApiEvent[];
-        setEvents(data.map(mapApiEvent));
+        setEvents(await listEvents(api, controller.signal));
         setUsingFallback(false);
-      } catch {
+      } catch (error) {
         if (!controller.signal.aborted) {
+          if (error instanceof ApiClientError && error.status === 401) {
+            void signOut();
+            return;
+          }
           setEvents(MOCK_EVENTS);
           setUsingFallback(true);
         }
@@ -189,7 +81,7 @@ function HomeScreen() {
 
     void loadEvents();
     return () => controller.abort();
-  }, []);
+  }, [api, signOut]);
 
   const visibleEvents = useMemo(() => {
     const now = new Date();
@@ -219,31 +111,33 @@ function HomeScreen() {
     setChatReply('');
     setMessage('');
     try {
-      const response = await fetch(`${API_ROOT}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: content,
-          thread_id: threadId,
-          user_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        }),
-      });
-      if (!response.ok) throw new Error(`No se pudo conectar con LanDo (${response.status}).`);
-      const data = (await response.json()) as ChatResponse;
+      const data = await sendAssistantMessage(
+        api,
+        content,
+        threadId,
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+      );
       setChatReply(data.reply);
       setThreadId(data.thread_id);
     } catch (error) {
+      if (error instanceof ApiClientError && error.status === 401) {
+        await signOut();
+      }
       setChatError(
-        error instanceof Error ? error.message : 'No se pudo enviar el mensaje. Inténtalo de nuevo.',
+        error instanceof Error ? error.message : t('chat_failed'),
       );
       setMessage(content);
     } finally {
       setSending(false);
     }
-  }, [message, sending, threadId]);
+  }, [api, message, sending, signOut, threadId, language]);
 
   const cognitiveLoad =
-    cognitiveState === 'light' ? 'Ligera' : cognitiveState === 'moderate' ? 'Moderada' : 'Saturado';
+    cognitiveState === 'light'
+      ? t('cognitive_light')
+      : cognitiveState === 'moderate'
+        ? t('cognitive_moderate')
+        : t('cognitive_saturated');
   const loadColor =
     cognitiveState === 'light'
       ? colors.green
@@ -267,22 +161,45 @@ function HomeScreen() {
             <View style={styles.header}>
               <View>
                 <Text style={styles.brand}>LanDo <Text style={styles.brandMark}>✳</Text></Text>
-                <Text style={styles.greeting}>Tu espacio, a tu ritmo.</Text>
+                <Text style={styles.greeting}>{t('greeting')}</Text>
               </View>
-              <View style={styles.avatar}><Text style={styles.avatarText}>L</Text></View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('change_language')}
+                onPress={() => {
+                  const nextLanguage = language === 'es' ? 'en' : 'es';
+                  setLanguage(nextLanguage);
+                  void updatePreferredLanguage(api, nextLanguage).catch((error: unknown) => {
+                    setChatError(
+                      error instanceof Error ? error.message : t('connection_failed'),
+                    );
+                  });
+                }}
+                style={styles.languageButton}
+              >
+                <Text style={styles.languageText}>{language.toUpperCase()}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityLabel={t('logout')}
+                accessibilityRole="button"
+                onPress={() => void signOut().catch(() => undefined)}
+                style={styles.avatar}
+              >
+                <Text style={styles.avatarText}>L</Text>
+              </Pressable>
             </View>
 
             <View style={styles.statusCard}>
               <View style={styles.sectionHeading}>
                 <View>
-                  <Text style={styles.eyebrow}>CHECK-IN RÁPIDO</Text>
-                  <Text style={styles.cardTitle}>¿Cómo vienes hoy?</Text>
+                  <Text style={styles.eyebrow}>{t('quick_checkin')}</Text>
+                  <Text style={styles.cardTitle}>{t('how_feeling')}</Text>
                 </View>
                 <Text style={styles.sparkle}>✦</Text>
               </View>
 
               <View style={styles.energyRow}>
-                {ENERGY_OPTIONS.map((option) => {
+                {energyOptions.map((option) => {
                   const selected = energy === option.key;
                   return (
                     <Pressable
@@ -303,14 +220,14 @@ function HomeScreen() {
 
               <View style={styles.loadRow}>
                 <View style={[styles.loadDot, { backgroundColor: loadColor }]} />
-                <Text style={styles.loadText}>Carga cognitiva</Text>
+                <Text style={styles.loadText}>{t('cognitive_load')}</Text>
                 <Text style={[styles.loadValue, { color: loadColor }]}>{cognitiveLoad}</Text>
               </View>
               <View style={styles.cognitiveOptions}>
                 {([
-                  ['light', 'Ligera', colors.green],
-                  ['moderate', 'Moderada', colors.amber],
-                  ['saturated', 'Saturado', colors.red],
+                  ['light', t('cognitive_light'), colors.green],
+                  ['moderate', t('cognitive_moderate'), colors.amber],
+                  ['saturated', t('cognitive_saturated'), colors.red],
                 ] as const).map(([key, label, color]) => (
                   <Pressable
                     key={key}
@@ -342,10 +259,10 @@ function HomeScreen() {
                 <Text style={styles.decompressionIcon}>☁</Text>
                 <View style={styles.decompressionCopy}>
                   <Text style={styles.decompressionTitle}>
-                    {decompression ? 'Modo descompresión activo' : '¿Mucho en la cabeza?'}
+                    {decompression ? t('decompression_active') : t('overwhelmed')}
                   </Text>
                   <Text style={styles.decompressionSubtitle}>
-                    {decompression ? 'Mostrando tareas de bajo esfuerzo' : 'Un toque para empezar suave'}
+                    {decompression ? t('low_effort_tasks') : t('start_gently')}
                   </Text>
                 </View>
                 <Text style={styles.decompressionArrow}>{decompression ? '✓' : '→'}</Text>
@@ -355,22 +272,26 @@ function HomeScreen() {
             <View style={styles.taskSection}>
               <View style={styles.todayHeading}>
                 <View>
-                  <Text style={styles.eyebrow}>TU PLAN FLEXIBLE</Text>
-                  <Text style={styles.sectionTitle}>Un paso cada vez</Text>
+                  <Text style={styles.eyebrow}>{t('flexible_plan')}</Text>
+                  <Text style={styles.sectionTitle}>{t('one_step')}</Text>
                 </View>
                 <View style={styles.energyFit}>
                   <Text style={styles.energyFitDot}>●</Text>
                   <Text style={styles.energyFitText}>
-                    {energy === 'low' ? 'Suave' : energy === 'medium' ? 'A tu energía' : 'Con impulso'}
+                    {energy === 'low'
+                      ? t('energy_soft')
+                      : energy === 'medium'
+                        ? t('energy_fit')
+                        : t('energy_momentum')}
                   </Text>
                 </View>
               </View>
 
               <View style={styles.tabs}>
                 {([
-                  ['now', 'Para ahora'],
-                  ['today', 'Hoy'],
-                  ['geofenced', 'Geofenced'],
+                  ['now', t('tab_now')],
+                  ['today', t('tab_today')],
+                  ['geofenced', t('tab_geofenced')],
                 ] as const).map(([key, label]) => (
                   <Pressable
                     key={key}
@@ -387,7 +308,7 @@ function HomeScreen() {
               {usingFallback && !loading && (
                 <View style={styles.fallbackBanner}>
                   <Text style={styles.fallbackIcon}>✦</Text>
-                  <Text style={styles.fallbackText}>Modo local · ejemplos para inspirarte</Text>
+                  <Text style={styles.fallbackText}>{t('local_mode')}</Text>
                 </View>
               )}
 
@@ -402,20 +323,20 @@ function HomeScreen() {
               ) : visibleEvents.length > 0 ? (
                 <View style={styles.eventList}>
                   {visibleEvents.map((event) => (
-                    <EventCard key={event.id} event={event} />
+                    <EventCard key={event.id} event={event} language={language} />
                   ))}
                 </View>
               ) : (
                 <View style={styles.emptyCard}>
                   <Text style={styles.emptyIcon}>{tab === 'geofenced' ? '⌖' : '☀'}</Text>
-                  <Text style={styles.emptyTitle}>No hay tareas por aquí.</Text>
-                  <Text style={styles.emptyCopy}>También está bien dejar espacio en tu día.</Text>
+                  <Text style={styles.emptyTitle}>{t('no_tasks')}</Text>
+                  <Text style={styles.emptyCopy}>{t('empty_day')}</Text>
                 </View>
               )}
 
               <View style={styles.encouragement}>
                 <Text style={styles.encouragementIcon}>✧</Text>
-                <Text style={styles.encouragementText}>No hace falta hacerlo todo. Solo lo siguiente.</Text>
+                <Text style={styles.encouragementText}>{t('encouragement')}</Text>
               </View>
             </View>
           </View>
@@ -431,8 +352,8 @@ function HomeScreen() {
           {chatError ? <Text style={styles.chatError}>{chatError}</Text> : null}
           <View style={styles.composer}>
             <TextInput
-              accessibilityLabel="Mensaje para LanDo"
-              placeholder="¿Qué tienes en mente?"
+              accessibilityLabel={t('chat_placeholder')}
+              placeholder={t('chat_placeholder')}
               placeholderTextColor={colors.muted}
               value={message}
               onChangeText={setMessage}
@@ -443,7 +364,7 @@ function HomeScreen() {
             />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Enviar mensaje"
+              accessibilityLabel={t('send_message')}
               disabled={!message.trim() || sending}
               onPress={() => void sendMessage()}
               style={[styles.sendButton, (!message.trim() || sending) && styles.sendButtonDisabled]}
@@ -455,20 +376,29 @@ function HomeScreen() {
               )}
             </Pressable>
           </View>
-          <Text style={styles.composerHint}>LanDo te ayuda a encontrar el siguiente paso.</Text>
+          <Text style={styles.composerHint}>{t('chat_hint')}</Text>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-function EventCard({ event }: { event: EventItem }) {
+function EventCard({ event, language }: { event: EventItem; language: AppLanguage }) {
+  const t = (key: Parameters<typeof translate>[1]) => translate(language, key);
   const priorityLabel =
-    event.priority === 'high' ? 'Importante' : event.priority === 'low' ? 'Flexible' : 'En tu lista';
+    event.priority === 'high'
+      ? t('priority_high')
+      : event.priority === 'low'
+        ? t('priority_low')
+        : t('priority_medium');
   const priorityStyle =
     event.priority === 'high' ? styles.priorityHigh : event.priority === 'low' ? styles.priorityLow : styles.priorityMedium;
-  const loadLabel = event.load <= 2 ? 'Ligera' : event.load === 3 ? 'Moderada' : 'Alta';
-  const energyLabel = ENERGY_OPTIONS.find((option) => option.key === event.energy)?.label;
+  const loadLabel =
+    event.load <= 2 ? t('load_light') : event.load === 3 ? t('load_moderate') : t('load_high');
+  const energyLabel = t(
+    event.energy === 'low' ? 'energy_low' : event.energy === 'high' ? 'energy_high' : 'energy_medium',
+  );
+  const energyEmoji = event.energy === 'low' ? '🪫' : event.energy === 'high' ? '🚀' : '⚡';
   const geofenced = event.triggerType.startsWith('LOCATION_');
 
   return (
@@ -477,7 +407,11 @@ function EventCard({ event }: { event: EventItem }) {
       <View style={styles.eventContent}>
         <View style={styles.eventTopline}>
           <Text style={styles.eventTime}>
-            {geofenced ? '⌖  Al llegar' : event.isMicroAction ? '✦  Micro-acción' : `◷  ${eventTime(event.startAt)}`}
+            {geofenced
+              ? t('location_arrival')
+              : event.isMicroAction
+                ? t('micro_action')
+                : `◷  ${eventTime(event.startAt, language)}`}
           </Text>
           <Text style={[styles.priorityBadge, priorityStyle]}>{priorityLabel}</Text>
         </View>
@@ -487,9 +421,9 @@ function EventCard({ event }: { event: EventItem }) {
           <Text style={styles.locationText}>⌖  {event.location}</Text>
         ) : null}
         <View style={styles.eventBadges}>
-          <Text style={styles.durationBadge}>◷  {durationLabel(event)}</Text>
-          <Text style={styles.loadBadge}>◌  Carga {loadLabel} · {event.load}/5</Text>
-          <Text style={styles.energyBadge}>{energyLabel} {ENERGY_OPTIONS.find((option) => option.key === event.energy)?.emoji}</Text>
+          <Text style={styles.durationBadge}>◷  {durationLabel(event, language)}</Text>
+          <Text style={styles.loadBadge}>◌  {t('load_label')} {loadLabel} · {event.load}/5</Text>
+          <Text style={styles.energyBadge}>{energyLabel} {energyEmoji}</Text>
         </View>
       </View>
     </View>
@@ -514,6 +448,7 @@ const colors = {
 };
 
 const styles = StyleSheet.create({
+  loadingScreen: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   safeArea: { flex: 1, backgroundColor: colors.background },
   keyboard: { flex: 1 },
   scrollContent: { flexGrow: 1, paddingBottom: 20 },
@@ -538,6 +473,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.violetPale,
   },
   avatarText: { color: colors.violet, fontSize: 18, fontWeight: '800' },
+  languageButton: {
+    minWidth: 42,
+    height: 38,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 'auto',
+    marginRight: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  languageText: { color: colors.violet, fontSize: 12, fontWeight: '800' },
   statusCard: {
     backgroundColor: colors.surface,
     borderRadius: 25,
@@ -788,4 +736,15 @@ const styles = StyleSheet.create({
   chatError: { color: colors.red, fontSize: 11, marginHorizontal: 5, marginBottom: 7 },
 });
 
-export default HomeScreen;
+export default function HomeScreen() {
+  const { accessToken, ready } = useSession();
+  if (!ready) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator color={colors.violet} />
+      </View>
+    );
+  }
+  if (!accessToken) return <Redirect href="/login" />;
+  return <HomeContent accessToken={accessToken} />;
+}
