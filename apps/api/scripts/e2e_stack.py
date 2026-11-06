@@ -71,7 +71,7 @@ def _check_api_and_chat(client: httpx.Client) -> None:
         raise RuntimeError("The live API does not publish POST /api/v1/chat")
     print("[OK] FastAPI health and versioned chat route")
 
-    email = f"e2e-{uuid.uuid4()}@example.test"
+    email = f"e2e-{uuid.uuid4()}@example.com"
     password = f"e2e-{uuid.uuid4()}-test-password"
     registered = client.post(
         f"{API_URL}/api/v1/auth/register",
