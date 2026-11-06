@@ -10,33 +10,27 @@ Provides unified construction of LangChain BaseChatModel instances across:
 Includes safe fallback handling to local Ollama if an API key is missing or invalid.
 """
 
-from typing import Optional
 import logging
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_ollama import ChatOllama
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+
+from src.application.settings.catalog import PROVIDER_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_OLLAMA_BASE_URL = "http://host.docker.internal:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 
-# Provider default models
-PROVIDER_DEFAULTS = {
-    "ollama": "qwen2.5:7b",
-    "google": "gemini-1.5-flash",
-    "anthropic": "claude-3-5-sonnet-20241022",
-    "openai": "gpt-4o-mini",
-}
-
 
 def get_llm_provider(
     provider_type: str,
-    model_name: Optional[str] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
+    model_name: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
     temperature: float = 0.2,
 ) -> BaseChatModel:
     """
@@ -103,4 +97,3 @@ def get_llm_provider(
     # Unknown provider fallback
     logger.warning("Unrecognized LLM provider '%s'. Defaulting to Ollama.", provider_type)
     return get_llm_provider("ollama", base_url=base_url)
-

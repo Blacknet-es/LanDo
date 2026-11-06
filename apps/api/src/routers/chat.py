@@ -1,17 +1,12 @@
 from datetime import datetime
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import HumanMessage, ToolMessage
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
-from sqlmodel import Session
 
-from src.agent.graph import create_agent_graph
-from src.domain.settings.repository import SqlModelUserSettingsRepository
+from src.application.chat.send_message import SendChatMessage, SendChatMessageUseCase
 from src.domain.users.models import User
-from src.infrastructure.db.session import get_session
-from src.infrastructure.llm.factory import get_llm_provider as create_llm_provider
+from src.presentation.http.dependencies import get_send_chat_message_use_case
+from src.presentation.http.language import get_request_language
 from src.security.auth import get_current_user
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -40,50 +35,25 @@ class ChatRequest(BaseModel):
         return message
 
 
-def get_llm_provider(
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-) -> BaseChatModel:
-    settings = SqlModelUserSettingsRepository(session, current_user.id).get_settings()
-    provider = settings.selected_provider
-    return create_llm_provider(
-        provider_type=provider,
-        model_name=settings.selected_model,
-        api_key=(settings.api_keys or {}).get(provider),
-        base_url=settings.ollama_base_url,
-    )
-
-
 @router.post("")
 def chat(
     payload: ChatRequest,
-    llm: BaseChatModel = Depends(get_llm_provider),
-    session: Session = Depends(get_session),
+    use_case: SendChatMessageUseCase = Depends(get_send_chat_message_use_case),
     current_user: User = Depends(get_current_user),
+    language: str = Depends(get_request_language),
 ) -> dict:
-    session_id = payload.thread_id or str(uuid4())
-    graph = create_agent_graph(
-        llm=llm,
-        session=session,
-        user_id=current_user.id,
-        current_datetime=payload.current_datetime,
-        user_timezone=payload.user_timezone,
+    response = use_case.execute(
+        SendChatMessage(
+            user_id=current_user.id,
+            message=payload.message,
+            thread_id=payload.thread_id,
+            current_datetime=payload.current_datetime,
+            user_timezone=payload.user_timezone,
+            language=language,
+        )
     )
-    result = graph.invoke(
-        {"messages": [HumanMessage(content=payload.message)]},
-        config={
-            "configurable": {
-                "thread_id": f"{current_user.id}:{session_id}",
-            }
-        },
-    )
-
-    reply = result["messages"][-1].content
-    tool_outputs = [
-        message.content for message in result["messages"] if isinstance(message, ToolMessage)
-    ]
     return {
-        "reply": reply,
-        "thread_id": session_id,
-        "tool_outputs": tool_outputs,
+        "reply": response.reply,
+        "thread_id": response.thread_id,
+        "tool_outputs": response.tool_outputs,
     }

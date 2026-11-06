@@ -8,19 +8,34 @@ from pwdlib import PasswordHash
 from sqlmodel import Session
 
 from src.config import settings
+from src.application.users.use_cases import AccessTokenIssuer, PasswordHasher
 from src.domain.users.models import User
+from src.infrastructure.db.models import UserModel
 from src.infrastructure.db.session import get_session
 
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+class PwdlibPasswordHasher(PasswordHasher):
+    def hash(self, password: str) -> str:
+        return password_hash.hash(password)
+
+    def verify(self, password: str, hashed_password: str) -> bool:
+        return password_hash.verify(password, hashed_password)
+
+
+class JwtAccessTokenIssuer(AccessTokenIssuer):
+    def issue(self, user_id: UUID) -> str:
+        return create_access_token(user_id)
+
+
 def hash_password(password: str) -> str:
-    return password_hash.hash(password)
+    return PwdlibPasswordHasher().hash(password)
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
-    return password_hash.verify(password, hashed_password)
+    return PwdlibPasswordHasher().verify(password, hashed_password)
 
 
 def create_access_token(user_id: UUID) -> str:
@@ -58,7 +73,13 @@ def get_current_user(
     except (jwt.InvalidTokenError, KeyError, TypeError, ValueError) as exc:
         raise unauthorized from exc
 
-    user = session.get(User, user_id)
-    if user is None:
+    model = session.get(UserModel, user_id)
+    if model is None:
         raise unauthorized
-    return user
+    return User(
+        id=model.id,
+        email=model.email,
+        hashed_password=model.hashed_password,
+        created_at=model.created_at,
+        preferred_language=model.preferred_language,
+    )

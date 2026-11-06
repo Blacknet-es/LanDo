@@ -4,21 +4,23 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlmodel import Session, select
 
 from src.application.events.absorb_reminders import AbsorbExternalRemindersUseCase
 from src.application.events.dtos import AbsorbExternalRemindersCommand
+from src.application.webhooks.process_location_trigger import (
+    ProcessLocationTriggerUseCase,
+    WebhookLocationNotFound,
+    WebhookUserNotFound,
+)
 from src.config import settings
-from src.domain.events.dispatcher import InMemoryDomainEventDispatcher
 from src.domain.events.exceptions import EventNotFoundException
 from src.domain.events.value_objects import TriggerType
-from src.domain.locations.models import UserLocation
-from src.domain.users.models import User
-from src.infrastructure.db.repositories import SqlModelEventRepository
-from src.infrastructure.db.session import get_session
+from src.presentation.http.dependencies import (
+    get_absorb_external_reminders_use_case_factory,
+    get_location_trigger_use_case,
+)
 
 router = APIRouter()
-event_dispatcher = InMemoryDomainEventDispatcher()
 logger = logging.getLogger(__name__)
 
 
@@ -62,33 +64,19 @@ class ExternalEventRequest(BaseModel):
     reminder_minutes: list[int] = Field(default_factory=list)
 
 
-def _process_location_trigger(
-    payload: LocationTriggerRequest,
-    session: Session,
-) -> dict[str, str]:
-    user = session.get(User, payload.user_id)
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    location = session.exec(
-        select(UserLocation).where(
-            UserLocation.id == payload.location_id,
-            UserLocation.user_id == payload.user_id,
-        )
-    ).first()
-    if location is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
-
-    return {"message": "Location trigger received"}
-
-
 @router.post("/location-trigger")
 async def location_trigger(
     payload: LocationTriggerRequest,
     _: None = Depends(verify_webhook_secret),
-    session: Session = Depends(get_session),
+    use_case: ProcessLocationTriggerUseCase = Depends(get_location_trigger_use_case),
 ) -> dict:
     try:
-        return _process_location_trigger(payload, session)
+        use_case.execute(payload.user_id, payload.location_id)
+        return {"message": "Location trigger received"}
+    except WebhookUserNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WebhookLocationNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:
@@ -109,13 +97,10 @@ async def location_trigger(
 @router.post("/external-event")
 async def external_event(
     event_data: ExternalEventRequest,
-    session: Session = Depends(get_session),
     _: None = Depends(verify_webhook_secret),
+    use_case_factory=Depends(get_absorb_external_reminders_use_case_factory),
 ) -> dict:
-    use_case = AbsorbExternalRemindersUseCase(
-        repository=SqlModelEventRepository(session, event_data.user_id),
-        dispatcher=event_dispatcher,
-    )
+    use_case: AbsorbExternalRemindersUseCase = use_case_factory(event_data.user_id)
     command = AbsorbExternalRemindersCommand(
         event_id=event_data.event_id,
         reminder_minutes=event_data.reminder_minutes,

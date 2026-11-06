@@ -36,6 +36,7 @@ available at `/docs`.
 | `GET` | `/api/v1/health` | Health check |
 | `POST` | `/api/v1/auth/register` | Create an account |
 | `POST` | `/api/v1/auth/login` | Get a JWT bearer token |
+| `GET`, `PATCH` | `/api/v1/users/me` | Read or update the account language (`es`/`en`) |
 | `POST` | `/api/v1/chat` | Send a message to the assistant |
 | `GET`, `POST` | `/api/v1/events` | List or create events |
 | `GET` | `/api/v1/events/{event_id}` | Get an event |
@@ -61,25 +62,56 @@ that user. External-event webhook bodies also include `user_id`. Send the
 secret using `X-LanDo-Webhook-Secret`; the legacy `X-Webhook-Secret` header is
 still accepted. Configure `WEBHOOK_SECRET` in the environment.
 
-## Database migration
+## Database migrations
 
-Before deploying the multi-tenant API to a database created by the previous
-schema, apply the versioned migration:
+The API does not create or alter tables at startup. Apply versioned SQL
+migrations before starting the API. For a fresh database:
 
 ```sh
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f apps/db/migrations/001_multi_tenant.sql
+docker compose up -d db
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' \
+  < apps/db/migrations/000_initial_schema.sql
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' \
+  < apps/db/migrations/001_multi_tenant.sql
+docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' \
+  < apps/db/migrations/002_localization_outbox.sql
 ```
+
+For a database created with the previous schema, skip `000_initial_schema.sql`
+and apply only `001_multi_tenant.sql` using the second command above.
+
+Apply `002_localization_outbox.sql` after `001_multi_tenant.sql` on both fresh
+and upgraded databases. It adds account language preference and a durable event
+outbox. Run the migrations in order before starting the API.
 
 This migration intentionally deletes existing event, reminder, location, and
 LLM-settings rows because they have no trustworthy tenant owner. Back up the
 database first if those records must be retained. New accounts start with
 empty tenant data and receive default LLM settings on first access.
 
+Provider API keys are encrypted at rest. In development, the encryption key is
+derived from `SECRET_KEY`; production must set a dedicated
+`LLM_SECRETS_ENCRYPTION_KEY` generated with
+`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+Back up this key separately from the database. For existing deployments, set
+the key and run `docker compose exec -T api uv run python scripts/migrate_llm_keys.py`
+once to encrypt plaintext keys in place. Do not lose or rotate the key without
+decrypting/re-encrypting stored provider keys.
+
+Chat language resolution uses the supported `Accept-Language` header first,
+then the account preference, then Spanish. The mobile app sends the device or
+user-selected language.
+
+The outbox worker sends `event.created` and `event.rescheduled` payloads to
+`N8N_WEBHOOK_URL` with `X-LanDo-Webhook-Secret` when configured. Configure an
+n8n POST webhook at that URL (the default path is `/webhook/lando-events`).
+Delivery is asynchronous and retries with capped exponential backoff; a failed
+n8n call does not roll back an API operation.
+
 ## Docker Compose E2E check
 
-The API container initializes missing SQLModel tables and enables the
-PostgreSQL `vector` extension at startup. To run the stack smoke test after
-starting Compose:
+After applying the database migrations above, start the stack and run the
+connectivity smoke test:
 
 ```sh
 docker compose up -d --build
@@ -97,3 +129,5 @@ The Expo app uses `http://localhost:8001` as its default API URL. Set
 `EXPO_PUBLIC_API_URL` before starting Expo when the API is hosted elsewhere
 (for example, use the computer's LAN IP when testing on a physical device).
 The app supports Expo Web and can be started with `npm run mobile -- --web`.
+Native builds store the access token with Expo SecureStore; web builds keep it
+in memory only, so a browser reload requires signing in again.

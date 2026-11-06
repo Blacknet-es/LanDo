@@ -1,21 +1,17 @@
-"""
-Application use cases for managing user POIs and locations.
-"""
-
+from dataclasses import dataclass
 from typing import List
 from uuid import UUID
-
-from pydantic import BaseModel, Field
 
 from src.domain.locations.models import UserLocation
 from src.domain.locations.repository import LocationRepository
 
 
-class CreateUserLocationDTO(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+@dataclass(frozen=True)
+class CreateUserLocationDTO:
+    name: str
     latitude: float
     longitude: float
-    radius_meters: int = Field(default=100, gt=0)
+    radius_meters: int = 100
 
 
 class CreateUserLocationUseCase:
@@ -24,9 +20,12 @@ class CreateUserLocationUseCase:
         self.user_id = user_id
 
     def execute(self, dto: CreateUserLocationDTO) -> UserLocation:
+        normalized_name = dto.name.strip()
+        if not normalized_name:
+            raise ValueError("name must not be blank")
         location = UserLocation(
             user_id=self.user_id,
-            name=dto.name.strip(),
+            name=normalized_name,
             latitude=dto.latitude,
             longitude=dto.longitude,
             radius_meters=dto.radius_meters,

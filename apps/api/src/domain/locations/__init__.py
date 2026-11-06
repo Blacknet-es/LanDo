@@ -1,18 +1,13 @@
-from src.domain.locations.models import UserLocation
 from src.domain.locations.exceptions import (
-    LocationNotFoundException,
     InvalidCoordinatesException,
+    LocationNotFoundException,
 )
-from src.domain.locations.repository import (
-    LocationRepository,
-    SqlModelLocationRepository,
-)
+from src.domain.locations.models import UserLocation
+from src.domain.locations.repository import LocationRepository
 
 __all__ = [
     "UserLocation",
     "LocationNotFoundException",
     "InvalidCoordinatesException",
     "LocationRepository",
-    "SqlModelLocationRepository",
 ]
-

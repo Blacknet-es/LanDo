@@ -17,10 +17,9 @@ from src.domain.events.value_objects import (
     EnergyLevel,
     EventSource,
     RecurrenceFrequency,
-    TriggerType,
     TriggerCondition,
+    TriggerType,
 )
-
 
 # ── Sub-DTOs ──────────────────────────────────────────────────────────────────
 

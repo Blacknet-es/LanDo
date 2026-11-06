@@ -1,13 +1,18 @@
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlmodel import Field, SQLModel
+
+class UserLanguage(StrEnum):
+    SPANISH = "es"
+    ENGLISH = "en"
 
 
-class User(SQLModel, table=True):
-    __tablename__ = "users"
-
-    id: UUID = Field(default_factory=uuid4, primary_key=True)
-    email: str = Field(unique=True, index=True, max_length=320)
-    hashed_password: str = Field(max_length=255)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+@dataclass(frozen=True)
+class User:
+    email: str
+    hashed_password: str
+    id: UUID = field(default_factory=uuid4)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    preferred_language: str = UserLanguage.SPANISH.value

@@ -9,7 +9,7 @@ from sqlmodel.pool import StaticPool
 
 from src.agent.tools.events import get_event_tools
 from src.agent.tools.locations import get_location_tools
-from src.domain.users.models import User
+from src.infrastructure.db.models import UserModel
 from src.infrastructure.db.session import get_session
 from src.main import app
 from src.security.auth import create_access_token
@@ -104,7 +104,7 @@ class TestLocationsApiIntegration:
             "/api/v1/locations",
             json={"name": "Private home", "latitude": 40.0, "longitude": -3.0},
         ).json()
-        second_user = User(email="second-location@example.com", hashed_password="unused")
+        second_user = UserModel(email="second-location@example.com", hashed_password="unused")
         session.add(second_user)
         session.commit()
         second_headers = {

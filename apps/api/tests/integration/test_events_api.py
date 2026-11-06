@@ -1,14 +1,16 @@
 """Integration tests for Events API and Database persistence."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 from sqlmodel.pool import StaticPool
 
+from src.infrastructure.db.models import EventOutboxModel, UserModel
 from src.infrastructure.db.session import get_session
 from src.main import app
+from src.security.auth import create_access_token
 from tests.auth_utils import authenticated_client, create_test_user
 
 
@@ -45,8 +47,8 @@ def _iso(dt: datetime) -> str:
 
 
 class TestEventsApiIntegration:
-    def test_create_and_get_event(self, client: TestClient):
-        start = datetime.now(timezone.utc) + timedelta(days=1)
+    def test_create_and_get_event(self, client: TestClient, session: Session):
+        start = datetime.now(UTC) + timedelta(days=1)
         end = start + timedelta(hours=1)
         payload = {
             "title": "Architecture Sync",
@@ -69,6 +71,10 @@ class TestEventsApiIntegration:
         assert data["cognitive_load"] == 4
         assert data["is_read_only"] is False
         event_id = data["id"]
+        outbox_events = session.exec(select(EventOutboxModel)).all()
+        assert len(outbox_events) == 1
+        assert outbox_events[0].event_type == "event.created"
+        assert outbox_events[0].payload["aggregate_id"] == event_id
 
         # 2. GET /events/{id}
         get_res = client.get(f"/api/v1/events/{event_id}")
@@ -85,7 +91,7 @@ class TestEventsApiIntegration:
         assert any(e["id"] == event_id for e in list_data)
 
     def test_create_event_invalid_cognitive_load(self, client: TestClient):
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         payload = {
             "title": "Invalid Task",
             "start_time": _iso(start),
@@ -94,8 +100,8 @@ class TestEventsApiIntegration:
         response = client.post("/api/v1/events", json=payload)
         assert response.status_code == 422
 
-    def test_reschedule_local_event_success(self, client: TestClient):
-        start = datetime.now(timezone.utc) + timedelta(hours=2)
+    def test_reschedule_local_event_success(self, client: TestClient, session: Session):
+        start = datetime.now(UTC) + timedelta(hours=2)
         create_res = client.post(
             "/api/v1/events",
             json={
@@ -113,6 +119,11 @@ class TestEventsApiIntegration:
             json={"new_start_time": _iso(new_start)},
         )
         assert resched_res.status_code == 200
+        outbox_events = session.exec(select(EventOutboxModel)).all()
+        assert sorted(event.event_type for event in outbox_events) == [
+            "event.created",
+            "event.rescheduled",
+        ]
 
         # Verify new start time
         get_res = client.get(f"/api/v1/events/{event_id}")
@@ -120,7 +131,7 @@ class TestEventsApiIntegration:
         assert get_res.json()["start_time"].startswith(new_start.isoformat()[:19])
 
     def test_reschedule_read_only_event_forbidden(self, client: TestClient):
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
         # Create external event (source=GOOGLE_CALENDAR -> is_read_only=True)
         create_res = client.post(
             "/api/v1/events",
@@ -149,3 +160,32 @@ class TestEventsApiIntegration:
     def test_get_nonexistent_event_returns_404(self, client: TestClient):
         res = client.get("/api/v1/events/nonexistent-id-123")
         assert res.status_code == 404
+
+    def test_event_reads_are_scoped_to_the_authenticated_user(
+        self,
+        client: TestClient,
+        session: Session,
+    ):
+        start = datetime.now(UTC) + timedelta(days=1)
+        created = client.post(
+            "/api/v1/events",
+            json={"title": "Private event", "start_time": _iso(start)},
+        )
+        assert created.status_code == 201
+
+        other_user = UserModel(
+            email="events-other-user@example.com",
+            hashed_password="unused",
+        )
+        session.add(other_user)
+        session.commit()
+        other_headers = {"Authorization": f"Bearer {create_access_token(other_user.id)}"}
+
+        assert client.get("/api/v1/events", headers=other_headers).json() == []
+        assert (
+            client.get(
+                f"/api/v1/events/{created.json()['id']}",
+                headers=other_headers,
+            ).status_code
+            == 404
+        )

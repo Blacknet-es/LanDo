@@ -14,14 +14,14 @@ pure-Python domain entities.
 """
 
 import uuid
-from datetime import datetime, timezone
-from typing import List, Optional
-from uuid import UUID
+from datetime import UTC, datetime
+from typing import Any, Optional
+from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKeyConstraint
-from sqlmodel import Field, Relationship, SQLModel
-
-from src.domain.users.models import User
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import CheckConstraint, Column, ForeignKeyConstraint, Text, UniqueConstraint
+from sqlalchemy.ext.compiler import compiles
+from sqlmodel import JSON, Field, Relationship, SQLModel
 
 
 def _uuid() -> str:
@@ -29,7 +29,97 @@ def _uuid() -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
+
+
+class UserModel(SQLModel, table=True):
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "preferred_language IN ('es', 'en')",
+            name="ck_users_preferred_language",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    email: str = Field(unique=True, index=True, max_length=320)
+    hashed_password: str = Field(max_length=255)
+    preferred_language: str = Field(default="es", max_length=5)
+    created_at: datetime = Field(default_factory=_now)
+
+
+class UserLocationModel(SQLModel, table=True):
+    __tablename__ = "user_locations"
+    __table_args__ = (UniqueConstraint("id", "user_id", name="uq_user_locations_id_user"),)
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", index=True)
+    name: str = Field(index=True, max_length=120)
+    latitude: float
+    longitude: float
+    radius_meters: int = Field(default=100)
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class LocationTriggerModel(SQLModel, table=True):
+    __tablename__ = "location_triggers"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["location_id", "user_id"],
+            ["user_locations.id", "user_locations.user_id"],
+            name="fk_location_triggers_location_tenant",
+        ),
+    )
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", index=True)
+    location_id: str = Field(index=True)
+    trigger_type: str = Field(max_length=32)
+    created_at: datetime = Field(default_factory=_now)
+
+
+class UserSettingsModel(SQLModel, table=True):
+    __tablename__ = "user_settings"
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", unique=True, index=True)
+    selected_provider: str = Field(default="ollama")
+    selected_model: str = Field(default="qwen2.5:7b")
+    api_keys: dict[str, str] = Field(default_factory=dict, sa_type=JSON)
+    ollama_base_url: str = Field(default="http://host.docker.internal:11434")
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+@compiles(Vector, "sqlite")
+def _compile_vector_for_sqlite(_type: Vector, _compiler: object, **_kwargs: object) -> str:
+    return "TEXT"
+
+
+class MemoryItemModel(SQLModel, table=True):
+    __tablename__ = "memory_items"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    user_id: UUID = Field(foreign_key="users.id", index=True)
+    content: str = Field(sa_column=Column(Text, nullable=False))
+    embedding: list[float] = Field(sa_column=Column(Vector(), nullable=False))
+    created_at: datetime = Field(default_factory=_now)
+
+
+class EventOutboxModel(SQLModel, table=True):
+    __tablename__ = "event_outbox"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    event_id: UUID = Field(unique=True, index=True)
+    user_id: UUID = Field(foreign_key="users.id", index=True)
+    event_type: str = Field(max_length=100, index=True)
+    payload: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    attempts: int = Field(default=0)
+    next_attempt_at: datetime = Field(default_factory=_now, index=True)
+    created_at: datetime = Field(default_factory=_now)
+    delivered_at: datetime | None = Field(default=None)
+    last_error: str | None = Field(default=None, sa_type=Text)
 
 
 # ── Typology ──────────────────────────────────────────────────────────────────
@@ -47,7 +137,7 @@ class TypologyModel(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_now)
 
     # Back-reference
-    events: List["EventModel"] = Relationship(back_populates="typology")
+    events: list["EventModel"] = Relationship(back_populates="typology")
 
 
 # ── Recurrence Rule (1-to-1 with Event) ───────────────────────────────────────
@@ -61,8 +151,8 @@ class RecurrenceRuleModel(SQLModel, table=True):
     # Stored as VARCHAR; maps to RecurrenceFrequency enum values
     frequency: str = Field(max_length=16)
     interval: int = Field(default=1)
-    until_date: Optional[datetime] = Field(default=None)
-    count: Optional[int] = Field(default=None)
+    until_date: datetime | None = Field(default=None)
+    count: int | None = Field(default=None)
 
     event: Optional["EventModel"] = Relationship(back_populates="recurrence_rule")
 
@@ -100,25 +190,25 @@ class EventModel(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     user_id: UUID = Field(foreign_key="users.id", index=True)
     title: str = Field(index=True, max_length=255)
-    description: Optional[str] = Field(default=None)
+    description: str | None = Field(default=None)
 
     # TimeRange — flattened columns
     start_time: datetime = Field(index=True)
-    end_time: Optional[datetime] = Field(default=None)
+    end_time: datetime | None = Field(default=None)
     is_all_day: bool = Field(default=False)
 
     # Provenance — stored as VARCHAR enum strings
     source: str = Field(default="LOCAL", max_length=32)
-    external_id: Optional[str] = Field(default=None, index=True, max_length=255)
+    external_id: str | None = Field(default=None, index=True, max_length=255)
     is_read_only: bool = Field(default=False)
 
     # Typology FK (nullable — event may be untyped)
-    typology_id: Optional[str] = Field(default=None, foreign_key="typologies.id", index=True)
+    typology_id: str | None = Field(default=None, foreign_key="typologies.id", index=True)
 
     # Location & Geofencing triggers
     trigger_type: str = Field(default="TIME_BASED", max_length=32)
-    location_id: Optional[str] = Field(default=None, index=True)
-    trigger_condition: Optional[str] = Field(default=None, max_length=16)
+    location_id: str | None = Field(default=None, index=True)
+    trigger_condition: str | None = Field(default=None, max_length=16)
 
     # ADHD / Cognitive load attributes — stored as VARCHAR enum strings
     energy_level: str = Field(default="MEDIUM_ENERGY", max_length=32)
@@ -130,7 +220,7 @@ class EventModel(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_now)
 
     # Relationships
-    user: User = Relationship()
-    typology: Optional[TypologyModel] = Relationship(back_populates="events")
-    recurrence_rule: Optional[RecurrenceRuleModel] = Relationship(back_populates="event")
-    reminders: List[EventReminderModel] = Relationship(back_populates="event")
+    user: UserModel = Relationship()
+    typology: TypologyModel | None = Relationship(back_populates="events")
+    recurrence_rule: RecurrenceRuleModel | None = Relationship(back_populates="event")
+    reminders: list[EventReminderModel] = Relationship(back_populates="event")

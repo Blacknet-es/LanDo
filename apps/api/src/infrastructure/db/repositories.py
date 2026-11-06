@@ -2,14 +2,13 @@
 SQLModel implementation of EventRepository.
 """
 
-from typing import Optional
+from datetime import datetime
 from uuid import UUID
 
 from sqlmodel import Session, select
 
 from src.application.events.repository import EventRepository
 from src.domain.events.entities import Event
-from src.domain.locations.models import UserLocation
 from src.infrastructure.db.mapper import (
     event_to_domain,
     event_to_model,
@@ -17,9 +16,7 @@ from src.infrastructure.db.mapper import (
     reminder_to_model,
     update_model_from_entity,
 )
-from src.infrastructure.db.models import (
-    EventModel,
-)
+from src.infrastructure.db.models import EventModel, UserLocationModel
 
 
 class SqlModelEventRepository(EventRepository):
@@ -27,7 +24,7 @@ class SqlModelEventRepository(EventRepository):
         self.session = session
         self.user_id = user_id
 
-    def find_by_id(self, event_id: str) -> Optional[Event]:
+    def find_by_id(self, event_id: str) -> Event | None:
         statement = select(EventModel).where(
             EventModel.id == event_id,
             EventModel.user_id == self.user_id,
@@ -45,7 +42,7 @@ class SqlModelEventRepository(EventRepository):
         return [event_to_domain(m) for m in models]
 
     def find_by_date_range(
-        self, start_date: Optional[object] = None, end_date: Optional[object] = None
+        self, start_date: datetime | None = None, end_date: datetime | None = None
     ) -> list[Event]:
         statement = select(EventModel).where(EventModel.user_id == self.user_id)
         if start_date is not None:
@@ -59,9 +56,9 @@ class SqlModelEventRepository(EventRepository):
     def save(self, event: Event) -> None:
         if event.location_id is not None:
             location = self.session.exec(
-                select(UserLocation).where(
-                    UserLocation.id == event.location_id,
-                    UserLocation.user_id == self.user_id,
+                select(UserLocationModel).where(
+                    UserLocationModel.id == event.location_id,
+                    UserLocationModel.user_id == self.user_id,
                 )
             ).first()
             if location is None:
@@ -99,7 +96,7 @@ class SqlModelEventRepository(EventRepository):
                 rem_model = reminder_to_model(reminder, event.id)
                 self.session.add(rem_model)
 
-        self.session.commit()
+        self.session.flush()
 
     def delete(self, event_id: str) -> None:
         model = self.session.exec(
@@ -110,4 +107,4 @@ class SqlModelEventRepository(EventRepository):
         ).first()
         if model:
             self.session.delete(model)
-            self.session.commit()
+            self.session.flush()

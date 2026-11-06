@@ -1,13 +1,8 @@
-from src.domain.settings.models import UserSettingsModel, LLMProviderType
-from src.domain.settings.repository import (
-    UserSettingsRepository,
-    SqlModelUserSettingsRepository,
-)
+from src.domain.settings.models import LLMProviderType, UserSettings
+from src.domain.settings.repository import UserSettingsRepository
 
 __all__ = [
-    "UserSettingsModel",
+    "UserSettings",
     "LLMProviderType",
     "UserSettingsRepository",
-    "SqlModelUserSettingsRepository",
 ]
-

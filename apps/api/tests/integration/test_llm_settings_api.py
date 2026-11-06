@@ -6,12 +6,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 from sqlmodel.pool import StaticPool
 
+from src.infrastructure.db.models import UserModel, UserSettingsModel
 from src.infrastructure.db.session import get_session
+from src.infrastructure.security.secrets import ENCRYPTED_PREFIX
 from src.main import app
-from tests.auth_utils import authenticated_client, create_test_user
+from src.security.auth import create_access_token
+from tests.auth_utils import authenticated_client, create_test_user, get_test_user_id
 
 
 @pytest.fixture(name="session")
@@ -52,7 +55,7 @@ class TestLLMSettingsApi:
         assert "openai" in data["available_providers"]
         assert "qwen2.5:7b" in data["provider_presets"]["ollama"]
 
-    def test_update_llm_settings(self, client: TestClient):
+    def test_update_llm_settings(self, client: TestClient, session: Session):
         payload = {
             "selected_provider": "google",
             "selected_model": "gemini-1.5-pro",
@@ -75,6 +78,37 @@ class TestLLMSettingsApi:
         assert get_res.status_code == 200
         assert get_res.json()["selected_provider"] == "google"
         assert get_res.json()["configured_api_keys"]["google"] is True
+        settings_model = session.exec(
+            select(UserSettingsModel).where(UserSettingsModel.user_id == get_test_user_id(session))
+        ).one()
+        assert settings_model.api_keys["google"].startswith(ENCRYPTED_PREFIX)
+        assert "test-gemini-key-12345" not in settings_model.api_keys["google"]
+
+    def test_llm_settings_are_scoped_to_the_authenticated_user(
+        self,
+        client: TestClient,
+        session: Session,
+    ):
+        client.put(
+            "/api/v1/settings/llm",
+            json={
+                "selected_provider": "google",
+                "selected_model": "gemini-test",
+                "api_keys": {"google": "owner-secret"},
+            },
+        )
+        other_user = UserModel(email="llm-other-user@example.com", hashed_password="unused")
+        session.add(other_user)
+        session.commit()
+
+        response = client.get(
+            "/api/v1/settings/llm",
+            headers={"Authorization": f"Bearer {create_access_token(other_user.id)}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["selected_provider"] == "ollama"
+        assert response.json()["configured_api_keys"] == {}
 
     def test_list_ollama_models_success(self, client: TestClient):
         mock_response = MagicMock()

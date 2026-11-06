@@ -3,7 +3,9 @@ Database session management and engine configuration.
 """
 
 from typing import Generator
+
 from sqlmodel import Session, create_engine
+
 from src.config import settings
 
 # In production or standard dev, use PostgreSQL from settings

@@ -14,7 +14,7 @@ from src.application.events.dtos import (
     RecurrenceRuleDTO,
 )
 from src.application.events.repository import EventRepository
-from src.domain.events.dispatcher import InMemoryDomainEventDispatcher
+from src.infrastructure.events.dispatcher import InMemoryDomainEventDispatcher
 from src.domain.events.entities import Event
 from src.domain.events.events import (
     EventCreatedDomainEvent,
@@ -227,4 +227,3 @@ class TestAbsorbExternalRemindersUseCase:
         assert len(absorbed_events) == 2
         assert absorbed_events[0].minutes_before == 10
         assert absorbed_events[0].external_source == "CALDAV"
-

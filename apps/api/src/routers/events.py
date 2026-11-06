@@ -1,11 +1,9 @@
 """Events REST API router."""
 
 from datetime import datetime
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlmodel import Session
 
 from src.application.events.create_event import CreateEventUseCase
 from src.application.events.dtos import (
@@ -13,8 +11,8 @@ from src.application.events.dtos import (
     RecurrenceRuleDTO,
     RescheduleEventCommand,
 )
+from src.application.events.query_events import GetEventUseCase, ListEventsUseCase
 from src.application.events.reschedule_event import RescheduleEventUseCase
-from src.domain.events.dispatcher import InMemoryDomainEventDispatcher
 from src.domain.events.exceptions import (
     EventNotFoundException,
     ImmutableEventException,
@@ -28,16 +26,14 @@ from src.domain.events.value_objects import (
     TriggerCondition,
     TriggerType,
 )
-from src.domain.users.models import User
-from src.infrastructure.db.repositories import SqlModelEventRepository
-from src.infrastructure.db.session import get_session
-from src.security.auth import get_current_user
+from src.presentation.http.dependencies import (
+    get_create_event_use_case,
+    get_get_event_use_case,
+    get_list_events_use_case,
+    get_reschedule_event_use_case,
+)
 
 router = APIRouter(prefix="/events", tags=["events"])
-
-# Singleton in-memory dispatcher for the process
-event_dispatcher = InMemoryDomainEventDispatcher()
-
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -45,48 +41,48 @@ event_dispatcher = InMemoryDomainEventDispatcher()
 class RecurrenceRuleSchema(BaseModel):
     frequency: RecurrenceFrequency
     interval: int = 1
-    until_date: Optional[datetime] = None
-    count: Optional[int] = None
+    until_date: datetime | None = None
+    count: int | None = None
 
 
 class CreateEventRequest(BaseModel):
     title: str
     start_time: datetime
-    end_time: Optional[datetime] = None
-    description: Optional[str] = None
+    end_time: datetime | None = None
+    description: str | None = None
     is_all_day: bool = False
     source: EventSource = EventSource.LOCAL
-    external_id: Optional[str] = None
-    typology_id: Optional[str] = None
+    external_id: str | None = None
+    typology_id: str | None = None
     trigger_type: TriggerType = TriggerType.TIME_BASED
-    location_id: Optional[str] = None
-    trigger_condition: Optional[TriggerCondition] = None
+    location_id: str | None = None
+    trigger_condition: TriggerCondition | None = None
     energy_level: EnergyLevel = EnergyLevel.MEDIUM_ENERGY
     cognitive_load: int = Field(default=3, ge=1, le=5)
     dopamine_reward: DopamineReward = DopamineReward.MEDIUM
-    recurrence_rule: Optional[RecurrenceRuleSchema] = None
-    reminder_minutes: List[int] = Field(default_factory=list)
+    recurrence_rule: RecurrenceRuleSchema | None = None
+    reminder_minutes: list[int] = Field(default_factory=list)
 
 
 class RescheduleEventRequest(BaseModel):
     new_start_time: datetime
-    new_end_time: Optional[datetime] = None
+    new_end_time: datetime | None = None
 
 
 class EventResponse(BaseModel):
     id: str
     title: str
-    description: Optional[str]
+    description: str | None
     start_time: datetime
-    end_time: Optional[datetime]
+    end_time: datetime | None
     is_all_day: bool
     source: str
-    external_id: Optional[str]
+    external_id: str | None
     is_read_only: bool
-    typology_id: Optional[str]
+    typology_id: str | None
     trigger_type: str
-    location_id: Optional[str]
-    trigger_condition: Optional[str]
+    location_id: str | None
+    trigger_condition: str | None
     energy_level: str
     cognitive_load: int
     dopamine_reward: str
@@ -100,12 +96,8 @@ class EventResponse(BaseModel):
 @router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
 def create_event(
     payload: CreateEventRequest,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    use_case: CreateEventUseCase = Depends(get_create_event_use_case),
 ) -> EventResponse:
-    repo = SqlModelEventRepository(session, current_user.id)
-    use_case = CreateEventUseCase(repo, event_dispatcher)
-
     rec_dto = None
     if payload.recurrence_rule:
         rec_dto = RecurrenceRuleDTO(
@@ -161,15 +153,13 @@ def create_event(
     )
 
 
-@router.get("", response_model=List[EventResponse])
+@router.get("", response_model=list[EventResponse])
 def list_events(
     limit: int = 100,
     offset: int = 0,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-) -> List[EventResponse]:
-    repo = SqlModelEventRepository(session, current_user.id)
-    events = repo.find_all(limit=limit, offset=offset)
+    use_case: ListEventsUseCase = Depends(get_list_events_use_case),
+) -> list[EventResponse]:
+    events = use_case.execute(limit=limit, offset=offset)
 
     return [
         EventResponse(
@@ -199,11 +189,9 @@ def list_events(
 @router.get("/{event_id}", response_model=EventResponse)
 def get_event(
     event_id: str,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    use_case: GetEventUseCase = Depends(get_get_event_use_case),
 ) -> EventResponse:
-    repo = SqlModelEventRepository(session, current_user.id)
-    event = repo.find_by_id(event_id)
+    event = use_case.execute(event_id)
     if not event:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -235,12 +223,8 @@ def get_event(
 def reschedule_event(
     event_id: str,
     payload: RescheduleEventRequest,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    use_case: RescheduleEventUseCase = Depends(get_reschedule_event_use_case),
 ) -> dict:
-    repo = SqlModelEventRepository(session, current_user.id)
-    use_case = RescheduleEventUseCase(repo, event_dispatcher)
-
     cmd = RescheduleEventCommand(
         event_id=event_id,
         new_start_time=payload.new_start_time,

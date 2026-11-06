@@ -8,6 +8,7 @@ from sqlmodel.pool import StaticPool
 
 from src.config import settings
 from src.domain.users.models import User
+from src.infrastructure.db.models import UserModel
 from src.infrastructure.db.session import get_session
 from src.main import app
 from src.security.auth import create_access_token
@@ -112,7 +113,7 @@ def test_events_and_settings_are_isolated_between_users(
     client: TestClient,
     session: Session,
 ) -> None:
-    second_user = User(
+    second_user = UserModel(
         email="second-tenant@example.com",
         hashed_password="unused-test-password-hash",
     )

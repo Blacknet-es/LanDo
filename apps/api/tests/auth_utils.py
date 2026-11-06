@@ -2,16 +2,23 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from src.domain.users.models import User
+from src.infrastructure.db.models import UserModel
 from src.main import app
 from src.security.auth import create_access_token
 
 
 def create_test_user(session: Session, email: str = "test@example.com") -> User:
     user = User(email=email, hashed_password="unused-test-password-hash")
-    session.add(user)
+    model = UserModel(
+        id=user.id,
+        email=user.email,
+        hashed_password=user.hashed_password,
+        created_at=user.created_at,
+    )
+    session.add(model)
     session.commit()
-    session.refresh(user)
-    session.info["test_user_id"] = user.id
+    session.refresh(model)
+    session.info["test_user_id"] = model.id
     return user
 
 

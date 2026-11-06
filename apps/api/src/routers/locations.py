@@ -2,11 +2,8 @@
 Locations REST API router.
 """
 
-from typing import List
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlmodel import Session
 
 from src.application.locations.use_cases import (
     CreateUserLocationDTO,
@@ -14,10 +11,10 @@ from src.application.locations.use_cases import (
     ListUserLocationsUseCase,
 )
 from src.domain.locations.exceptions import InvalidCoordinatesException
-from src.domain.locations.repository import SqlModelLocationRepository
-from src.domain.users.models import User
-from src.infrastructure.db.session import get_session
-from src.security.auth import get_current_user
+from src.presentation.http.dependencies import (
+    get_create_location_use_case,
+    get_list_locations_use_case,
+)
 
 router = APIRouter(prefix="/locations", tags=["locations"])
 
@@ -48,12 +45,8 @@ class LocationResponse(BaseModel):
 @router.post("", response_model=LocationResponse, status_code=status.HTTP_201_CREATED)
 def create_location(
     payload: CreateLocationRequest,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
+    use_case: CreateUserLocationUseCase = Depends(get_create_location_use_case),
 ) -> LocationResponse:
-    repo = SqlModelLocationRepository(session, current_user.id)
-    use_case = CreateUserLocationUseCase(repo, current_user.id)
-
     try:
         dto = CreateUserLocationDTO(
             name=payload.name,
@@ -76,15 +69,12 @@ def create_location(
         )
 
 
-@router.get("", response_model=List[LocationResponse])
+@router.get("", response_model=list[LocationResponse])
 def get_locations(
     limit: int = 100,
     offset: int = 0,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-) -> List[LocationResponse]:
-    repo = SqlModelLocationRepository(session, current_user.id)
-    use_case = ListUserLocationsUseCase(repo)
+    use_case: ListUserLocationsUseCase = Depends(get_list_locations_use_case),
+) -> list[LocationResponse]:
     locations = use_case.execute(limit=limit, offset=offset)
 
     return [

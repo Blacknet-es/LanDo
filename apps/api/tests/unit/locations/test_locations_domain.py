@@ -13,8 +13,9 @@ from src.application.locations.use_cases import (
 )
 from src.domain.locations.exceptions import InvalidCoordinatesException
 from src.domain.locations.models import UserLocation
-from src.domain.locations.repository import SqlModelLocationRepository
 from src.domain.users.models import User
+from src.infrastructure.db.location_repository import SqlModelLocationRepository
+from src.infrastructure.db.models import UserModel
 from tests.auth_utils import get_test_user_id
 
 
@@ -28,7 +29,13 @@ def session_fixture():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         user = User(email="locations@example.com", hashed_password="unused")
-        session.add(user)
+        model = UserModel(
+            id=user.id,
+            email=user.email,
+            hashed_password=user.hashed_password,
+            created_at=user.created_at,
+        )
+        session.add(model)
         session.commit()
         session.info["test_user_id"] = user.id
         yield session

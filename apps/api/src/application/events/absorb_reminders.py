@@ -10,9 +10,9 @@ local mutation).
 
 from __future__ import annotations
 
+from src.application.events.dispatcher import DomainEventDispatcher
 from src.application.events.dtos import AbsorbExternalRemindersCommand
 from src.application.events.repository import EventRepository
-from src.domain.events.dispatcher import DomainEventDispatcher
 from src.domain.events.entities import Event
 from src.domain.events.exceptions import EventNotFoundException
 
@@ -38,4 +38,3 @@ class AbsorbExternalRemindersUseCase:
         self._dispatcher.dispatch_all(event.pull_domain_events())
 
         return event
-

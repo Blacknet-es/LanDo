@@ -15,9 +15,9 @@ EventRepository Protocol defined in this same application layer.
 
 from __future__ import annotations
 
+from src.application.events.dispatcher import DomainEventDispatcher
 from src.application.events.dtos import CreateEventCommand
 from src.application.events.repository import EventRepository
-from src.domain.events.dispatcher import DomainEventDispatcher
 from src.domain.events.entities import Event
 from src.domain.events.value_objects import RecurrenceRule, TimeRange
 
@@ -80,4 +80,3 @@ class CreateEventUseCase:
         self._dispatcher.dispatch_all(event.pull_domain_events())
 
         return event
-

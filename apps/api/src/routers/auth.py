@@ -2,12 +2,17 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, select
 
-from src.domain.users.models import User
-from src.infrastructure.db.session import get_session
-from src.security.auth import create_access_token, hash_password, verify_password
+from src.application.users.use_cases import (
+    AccountAlreadyExists,
+    InvalidCredentials,
+    LoginUserUseCase,
+    RegisterUserUseCase,
+)
+from src.presentation.http.dependencies import (
+    get_login_user_use_case,
+    get_register_user_use_case,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,37 +39,31 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, session: Session = Depends(get_session)) -> UserResponse:
-    email = str(payload.email).strip().lower()
-    existing = session.exec(select(User).where(User.email == email)).first()
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with this email already exists",
-        )
-
-    user = User(email=email, hashed_password=hash_password(payload.password))
-    session.add(user)
+def register(
+    payload: RegisterRequest,
+    use_case: RegisterUserUseCase = Depends(get_register_user_use_case),
+) -> UserResponse:
     try:
-        session.commit()
-    except IntegrityError as exc:
-        session.rollback()
+        user = use_case.execute(str(payload.email), payload.password)
+    except AccountAlreadyExists as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists",
         ) from exc
-    session.refresh(user)
     return UserResponse(id=str(user.id), email=user.email, created_at=user.created_at)
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
-    email = str(payload.email).strip().lower()
-    user = session.exec(select(User).where(User.email == email)).first()
-    if user is None or not verify_password(payload.password, user.hashed_password):
+def login(
+    payload: LoginRequest,
+    use_case: LoginUserUseCase = Depends(get_login_user_use_case),
+) -> TokenResponse:
+    try:
+        token = use_case.execute(str(payload.email), payload.password)
+    except InvalidCredentials as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
-        )
-    return TokenResponse(access_token=create_access_token(user.id))
+        ) from exc
+    return TokenResponse(access_token=token)

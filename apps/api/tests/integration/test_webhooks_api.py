@@ -5,9 +5,10 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 from src.config import settings
-from src.domain.locations.models import UserLocation
+from src.infrastructure.db.models import UserLocationModel
 from src.infrastructure.db.session import get_session
 from src.main import app
+from src.presentation.http.dependencies import get_location_trigger_use_case
 from src.routers import webhooks
 from tests.auth_utils import create_test_user
 
@@ -64,7 +65,7 @@ def test_location_trigger_accepts_valid_secret(
 ) -> None:
     monkeypatch.setattr(settings, "webhook_secret", "test-secret")
     user = create_test_user(session)
-    location = UserLocation(
+    location = UserLocationModel(
         user_id=user.id,
         name="Parents' house",
         latitude=40.0,
@@ -91,7 +92,7 @@ def test_location_trigger_accepts_legacy_secret_header(
 ) -> None:
     monkeypatch.setattr(settings, "webhook_secret", "test-secret")
     user = create_test_user(session)
-    location = UserLocation(
+    location = UserLocationModel(
         user_id=user.id,
         name="Parents' house",
         latitude=40.0,
@@ -120,7 +121,7 @@ def test_location_trigger_cannot_cross_user_boundary(
     monkeypatch.setattr(settings, "webhook_secret", "test-secret")
     owner = create_test_user(session, "location-owner@example.com")
     other_user = create_test_user(session, "other-location-user@example.com")
-    location = UserLocation(
+    location = UserLocationModel(
         user_id=owner.id,
         name="Private location",
         latitude=40.0,
@@ -208,13 +209,11 @@ def test_location_trigger_returns_structured_error_on_unexpected_exception(
 ) -> None:
     monkeypatch.setattr(settings, "webhook_secret", "test-secret")
 
-    def fail_processing(
-        payload: webhooks.LocationTriggerRequest,
-        session: Session,
-    ) -> dict[str, str]:
-        raise RuntimeError("location service unavailable")
+    class FailingUseCase:
+        def execute(self, _user_id, _location_id) -> None:
+            raise RuntimeError("location service unavailable")
 
-    monkeypatch.setattr(webhooks, "_process_location_trigger", fail_processing)
+    client.app.dependency_overrides[get_location_trigger_use_case] = lambda: FailingUseCase()
     response = client.post(
         "/api/v1/webhooks/location-trigger",
         json={

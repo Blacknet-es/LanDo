@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from sqlalchemy.dialects import postgresql
 
-from src.domain.memory.repository import UserMemoryRepository
+from src.infrastructure.db.memory_repository import SqlModelUserMemoryRepository
 
 
 class _Result:
@@ -28,19 +28,19 @@ class _Session:
 def test_memory_save_assigns_repository_owner():
     user_id = uuid4()
     session = _Session()
-    repository = UserMemoryRepository(session, user_id)
+    repository = SqlModelUserMemoryRepository(session, user_id)
 
     item = repository.save("private memory", [0.1, 0.2])
 
     assert item.user_id == user_id
     assert item.content == "private memory"
-    assert item.embedding == [0.1, 0.2]
+    assert item.embedding == (0.1, 0.2)
 
 
 def test_memory_search_query_always_filters_by_owner():
     user_id = uuid4()
     session = _Session()
-    repository = UserMemoryRepository(session, user_id)
+    repository = SqlModelUserMemoryRepository(session, user_id)
 
     assert repository.similarity_search([0.1, 0.2]) == []
 
